@@ -1,0 +1,7 @@
+pymupdf==1.24.9
+tqdm==4.66.4
+python-dotenv==1.0.1
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+networkx==3.3
