@@ -1,58 +1,88 @@
-import os, json, time
-import requests
+import os
+import json
+import time
+from typing import Dict, Any
+
+from langchain_ollama import OllamaLLM
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+# ✅ correct relative import (file is in the same 'classify' package)
+from .heuristic_tagger import tag_chunk_heuristic
 
 SYSTEM_PROMPT = (
     "You label ONLY what the given text explicitly supports. "
-    "No external knowledge. Return compact JSON with keys: "
-    "section_type (array of strings), content_role (array), "
-    "entities (object with arrays: token, protocol, component, organization), "
-    "relations (array of {subject,predicate,object,confidence,evidence_span:[start,end]}), "
-    "keyphrases (array), confidence_overall (0..1). "
-    "Use evidence_span offsets relative to the provided text."
+    "No external knowledge. Return STRICT JSON with keys:\n"
+    "  section_type: array of strings,\n"
+    "  content_role: array of strings,\n"
+    "  entities: { token:[], protocol:[], component:[], organization:[] },\n"
+    "  relations: [ {subject, predicate, object, confidence, evidence_span:[start,end]} ],\n"
+    "  keyphrases: array of strings,\n"
+    "  confidence_overall: number (0..1)\n"
+    "Offsets in evidence_span are relative to the provided text. "
+    "If unsure, leave arrays empty. No commentary—JSON ONLY."
 )
 
-def _ollama_chat(messages, base, model):
-    r = requests.post(f"{base}/api/chat", json={"model": model, "messages": messages, "stream": False}, timeout=120)
-    r.raise_for_status()
-    return r.json()["message"]["content"]
+USER_PROMPT_TMPL = """Document title: {title}
+
+Text:
+{chunk_text}
+
+Respond with pure JSON, no prose, no code fences.
+"""
+
+def _make_llm() -> OllamaLLM | None:
+    model = os.getenv("OLLAMA_MODEL", "").strip()
+    base_url = os.getenv("OLLAMA_BASE", "http://127.0.0.1:11434").strip()
+    if not model:
+        return None
+    try:
+        llm = OllamaLLM(model=model, base_url=base_url, temperature=0.2)
+        return llm
+    except Exception:
+        return None
+
+def _parse_json_maybe(text: str) -> Dict[str, Any] | None:
+    s = text.strip()
+    if s.startswith("```"):
+        s = s.strip("` \n")
+        if s.lower().startswith("json"):
+            s = s[4:].strip()
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
 
 def tag_chunk(text: str, title: str = "") -> dict:
-    base = os.getenv("OLLAMA_BASE", "http://127.0.0.1:11434")
-    model = os.getenv("OLLAMA_MODEL", "").strip()
-    if not model:
-        # Fallback: very simple heuristic tags (no LLM)
-        return {
-            "section_type": ["unknown"],
-            "content_role": [],
-            "entities": {"token": [], "protocol": [], "component": [], "organization": []},
-            "relations": [],
-            "keyphrases": list(sorted({w.lower() for w in text.split() if w.istitle()}) )[:10],
-            "confidence_overall": 0.2
-        }
-    prompt = (
-        f"Document title: {title}\n"
-        f"Text:\n{text}\n\n"
-        "Respond with pure JSON, no prose."
+    """
+    Try LangChain+Ollama first for JSON labels.
+    Falls back to a deterministic heuristic if LLM unavailable or parsing fails.
+    """
+    llm = _make_llm()
+    if llm is None:
+        return tag_chunk_heuristic(text, title=title)
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_PROMPT),
+            ("user", USER_PROMPT_TMPL),
+        ]
     )
-    for attempt in range(2):
+    chain = prompt | llm | StrOutputParser()
+
+    for _ in range(2):
         try:
-            raw = _ollama_chat(
-                messages=[{"role": "system", "content": SYSTEM_PROMPT},
-                          {"role": "user", "content": prompt}],
-                base=base, model=model
-            )
-            # be forgiving about leading/trailing code fences
-            raw = raw.strip().strip("`")
-            if raw.startswith("json"): raw = raw[4:].strip()
-            return json.loads(raw)
+            out = chain.invoke({"title": title, "chunk_text": text})
+            obj = _parse_json_maybe(out)
+            if obj and isinstance(obj, dict):
+                obj.setdefault("section_type", ["unknown"])
+                obj.setdefault("content_role", [])
+                obj.setdefault("entities", {"token": [], "protocol": [], "component": [], "organization": []})
+                obj.setdefault("relations", [])
+                obj.setdefault("keyphrases", [])
+                obj.setdefault("confidence_overall", 0.5)
+                return obj
         except Exception:
-            time.sleep(1)
-    # last-resort fallback
-    return {
-        "section_type": ["unknown"],
-        "content_role": [],
-        "entities": {"token": [], "protocol": [], "component": [], "organization": []},
-        "relations": [],
-        "keyphrases": [],
-        "confidence_overall": 0.0
-    }
+            time.sleep(0.5)
+
+    return tag_chunk_heuristic(text, title=title)

@@ -1,19 +1,39 @@
+import os
 import json
 from pathlib import Path
 from dataclasses import asdict
+from dotenv import load_dotenv
 from tqdm import tqdm
 
-from src.ingest.pdf_reader import load_pdf
-from src.chunking.semantic_splitter import split_pages_to_chunks
-from src.classify.llm_chunk_tagger import tag_chunk
-from src.cluster.simple_communities import kmeans_text_clusters, co_mention_graph
-from src.reports.summary import write_overview, write_json
+# ✅ package-relative imports
+from .ingest.pdf_reader import load_pdf
+from .chunking.semantic_splitter import split_pages_to_chunks
+from .classify.llm_chunk_tagger import tag_chunk
+from .cluster.simple_communities import kmeans_text_clusters, co_mention_graph
+from .reports.summary import write_overview, write_json
+
+def _is_boilerplate(ch_text: str) -> bool:
+    t = ch_text.lower()
+    # creative commons / license pages
+    if "creative commons" in t or "attribution" in t or "license" in t:
+        return True
+    # references sections: many bracketed citations or the word 'references'
+    if "references" in t and t.strip().startswith("references"):
+        return True
+    # footers with almost no letters
+    alpha_ratio = sum(c.isalpha() for c in t) / max(1, len(t))
+    if alpha_ratio < 0.25 and len(t) > 400:
+        return True
+    return False
 
 def process_pdf(pdf_path: Path, out_dir: Path):
     meta, pages = load_pdf(pdf_path)
     doc_dir = out_dir / "docs"
     doc_dir.mkdir(parents=True, exist_ok=True)
-    (doc_dir / f"{meta.doc_id}.meta.json").write_text(json.dumps(asdict(meta), indent=2), encoding="utf-8")
+    (doc_dir / f"{meta.doc_id}.meta.json").write_text(
+        json.dumps(asdict(meta), indent=2),
+        encoding="utf-8"
+    )
 
     # chunk
     raw_chunks = split_pages_to_chunks(pages)
@@ -33,7 +53,7 @@ def process_pdf(pdf_path: Path, out_dir: Path):
         for ch in chunks:
             f.write(json.dumps(ch, ensure_ascii=False) + "\n")
 
-    # classify (LLM optional)
+    # classify (LLM via LangChain + Ollama; internal fallback exists)
     labels_dir = out_dir / "labels"
     labels_dir.mkdir(parents=True, exist_ok=True)
     lab_path = labels_dir / f"{meta.doc_id}.labels.jsonl"
@@ -54,6 +74,9 @@ def load_all_labels(labels_dir: Path):
     return all_labels
 
 def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
+    # load .env so OLLAMA_MODEL / OLLAMA_BASE are seen by LangChain Ollama
+    load_dotenv()
+
     pdf_dir = Path(pdf_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -62,11 +85,17 @@ def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
     all_chunks = []
     for pdf in sorted(pdf_dir.glob("*.pdf")):
         meta, chunks, _ = process_pdf(pdf, out_dir)
-        doc_summaries.append({"doc_id": meta.doc_id, "title": meta.title, "pages": meta.pages, "chunks": len(chunks)})
+        doc_summaries.append({
+            "doc_id": meta.doc_id,
+            "title": meta.title,
+            "pages": meta.pages,
+            "chunks": len(chunks)
+        })
         all_chunks.extend(chunks)
 
-    # global clustering over all chunks (text-based KMeans)
-    kmeans = kmeans_text_clusters(all_chunks, k=6)
+    # filter boilerplate before clustering
+    filtered_chunks = [c for c in all_chunks if not _is_boilerplate(c["text"])]
+    kmeans = kmeans_text_clusters(filtered_chunks, k=6)
 
     # load labels for co-mention graph
     labels = load_all_labels(out_dir / "labels")
