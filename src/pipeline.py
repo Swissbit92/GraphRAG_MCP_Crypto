@@ -1,3 +1,4 @@
+# src/pipeline.py
 import os
 import json
 from pathlib import Path
@@ -12,7 +13,12 @@ from .classify.llm_chunk_tagger import tag_chunk
 from .cluster.simple_communities import kmeans_text_clusters, co_mention_graph
 from .reports.summary import write_overview, write_json
 
+
 def _is_boilerplate(ch_text: str) -> bool:
+    """
+    Heuristics to drop low-signal pages/chunks (licenses, references, footers).
+    This reduces noise in clustering without affecting labeling.
+    """
     t = ch_text.lower()
     # creative commons / license pages
     if "creative commons" in t or "attribution" in t or "license" in t:
@@ -26,8 +32,15 @@ def _is_boilerplate(ch_text: str) -> bool:
         return True
     return False
 
+
 def process_pdf(pdf_path: Path, out_dir: Path):
+    """
+    Read a single PDF → chunk → LLM tag → persist chunks + labels.
+    Returns (meta, chunks, labels_path).
+    """
     meta, pages = load_pdf(pdf_path)
+
+    # docs/
     doc_dir = out_dir / "docs"
     doc_dir.mkdir(parents=True, exist_ok=True)
     (doc_dir / f"{meta.doc_id}.meta.json").write_text(
@@ -47,7 +60,8 @@ def process_pdf(pdf_path: Path, out_dir: Path):
             "char_end": ch["char_end"],
             "text": ch["text"]
         })
-    # save chunks jsonl
+
+    # persist chunks jsonl
     chunks_path = doc_dir / f"{meta.doc_id}.chunks.jsonl"
     with chunks_path.open("w", encoding="utf-8") as f:
         for ch in chunks:
@@ -65,7 +79,9 @@ def process_pdf(pdf_path: Path, out_dir: Path):
 
     return meta, chunks, lab_path
 
+
 def load_all_labels(labels_dir: Path):
+    """Read back all label JSONL files to feed the co-mention graph."""
     all_labels = []
     for p in labels_dir.glob("*.labels.jsonl"):
         with p.open("r", encoding="utf-8") as f:
@@ -73,14 +89,22 @@ def load_all_labels(labels_dir: Path):
                 all_labels.append(json.loads(line))
     return all_labels
 
+
 def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
-    # load .env so OLLAMA_MODEL / OLLAMA_BASE are seen by LangChain Ollama
+    # Load .env so OLLAMA_MODEL / OLLAMA_BASE are available for LangChain Ollama
     load_dotenv()
 
     pdf_dir = Path(pdf_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Ensure the LLM label cache (used by llm_chunk_tagger) is colocated with this run
+    os.environ.setdefault(
+        "WP_EXPLORE_CACHE_DIR",
+        str(out_dir / ".cache" / "labels")
+    )
+
+    # Process PDFs → chunks + labels
     doc_summaries = []
     all_chunks = []
     for pdf in sorted(pdf_dir.glob("*.pdf")):
@@ -93,21 +117,22 @@ def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
         })
         all_chunks.extend(chunks)
 
-    # filter boilerplate before clustering
+    # Filter boilerplate before clustering (labels remain unfiltered)
     filtered_chunks = [c for c in all_chunks if not _is_boilerplate(c["text"])]
     kmeans = kmeans_text_clusters(filtered_chunks, k=6)
 
-    # load labels for co-mention graph
+    # Build co-mention graph communities from labels
     labels = load_all_labels(out_dir / "labels")
     graph_comm = co_mention_graph(labels)
 
-    # persist communities
+    # Persist communities
     write_json(out_dir / "communities" / "embedding_clusters.json", kmeans)
     write_json(out_dir / "communities" / "graph_communities.json", graph_comm)
 
-    # report
+    # Write the human overview report
     write_overview(out_dir, doc_summaries, kmeans, graph_comm)
     print(f"\nDone. See report at: {out_dir}/reports/overview.md")
+
 
 if __name__ == "__main__":
     main()

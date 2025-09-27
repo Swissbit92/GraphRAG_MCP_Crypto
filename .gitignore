@@ -3,3 +3,4 @@ lib/
 bin/
 outputs/
 __pycache__/
+data/
