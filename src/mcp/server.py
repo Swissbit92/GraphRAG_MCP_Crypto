@@ -1,3 +1,4 @@
+# src/mcp/server.py
 """
 Minimal MCP server launcher with 3 modes:
 

@@ -1,3 +1,4 @@
+# src/mcp/tools.py
 """
 MCP tools registry.
 

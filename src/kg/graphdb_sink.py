@@ -1,3 +1,4 @@
+# src/kg/graphdb_sink.py
 import os
 import json
 from pathlib import Path
