@@ -7,8 +7,17 @@ pandas==2.2.2
 scikit-learn==1.5.1
 networkx==3.3
 requests==2.32.3
+pydantic==2.8.2
+
+# ✅ For YAML parsing
+PyYAML==6.0.2
+rapidfuzz==3.9.6
 
 # ✅ LangChain + Ollama
 langchain
 langchain-core
 langchain-ollama
+
+# ✅ RDFLib for RDF handling
+langchain-community==0.3.4
+rdflib==7.1.1

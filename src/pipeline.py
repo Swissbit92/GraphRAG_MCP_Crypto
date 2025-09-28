@@ -12,6 +12,7 @@ from .chunking.semantic_splitter import split_pages_to_chunks
 from .classify.llm_chunk_tagger import tag_chunk
 from .cluster.simple_communities import kmeans_text_clusters, co_mention_graph
 from .reports.summary import write_overview, write_json
+from .schema.contracts import validate_label_record  # ← NEW
 
 
 def _is_boilerplate(ch_text: str) -> bool:
@@ -35,7 +36,7 @@ def _is_boilerplate(ch_text: str) -> bool:
 
 def process_pdf(pdf_path: Path, out_dir: Path):
     """
-    Read a single PDF → chunk → LLM tag → persist chunks + labels.
+    Read a single PDF → chunk → LLM tag → persist chunks + labels (validated).
     Returns (meta, chunks, labels_path).
     """
     meta, pages = load_pdf(pdf_path)
@@ -71,11 +72,27 @@ def process_pdf(pdf_path: Path, out_dir: Path):
     labels_dir = out_dir / "labels"
     labels_dir.mkdir(parents=True, exist_ok=True)
     lab_path = labels_dir / f"{meta.doc_id}.labels.jsonl"
+
+    dropped = 0
     with lab_path.open("w", encoding="utf-8") as f:
         for ch in tqdm(chunks, desc=f"Tagging {meta.doc_id}"):
             lab = tag_chunk(ch["text"], title=meta.title)
+            # stitch record
             lab_rec = {"doc_id": meta.doc_id, "chunk_id": ch["chunk_id"], **lab}
-            f.write(json.dumps(lab_rec, ensure_ascii=False) + "\n")
+            # ✅ validate & normalize against schema v0.1 (uses text for span bounds)
+            ok, norm, err = validate_label_record(lab_rec, text=ch["text"])
+            if not ok:
+                # Fail closed for structurally broken rows; log to sidecar file
+                dropped += 1
+                (labels_dir / f"{meta.doc_id}.labels.errors.log").open("a", encoding="utf-8").write(
+                    json.dumps({"chunk_id": ch["chunk_id"], "error": err, "raw": lab_rec}, ensure_ascii=False) + "\n"
+                )
+                # continue without writing the bad row
+                continue
+            f.write(json.dumps(norm, ensure_ascii=False) + "\n")
+
+    if dropped:
+        print(f"  - {dropped} label row(s) dropped for {meta.doc_id} due to schema v0.1 validation")
 
     return meta, chunks, lab_path
 
@@ -131,6 +148,14 @@ def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
 
     # Write the human overview report
     write_overview(out_dir, doc_summaries, kmeans, graph_comm)
+    if os.getenv("GRAPHDB_PUSH", "").lower() in ("1", "true", "yes"):
+        from .kg.graphdb_sink import push_labels_dir
+        push_labels_dir(
+            out_dir=out_dir,
+            graphdb_url=os.getenv("GRAPHDB_URL", "http://localhost:7200"),
+            repository=os.getenv("GRAPHDB_REPOSITORY", "mcp_kg"),
+            batch_size=int(os.getenv("GRAPHDB_BATCH_SIZE", "100"))
+        )
     print(f"\nDone. See report at: {out_dir}/reports/overview.md")
 
 
