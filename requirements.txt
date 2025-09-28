@@ -1,4 +1,6 @@
 # requirements.txt
+
+# ✅ Basic dependencies
 pymupdf==1.24.9
 tqdm==4.66.4
 python-dotenv==1.0.1

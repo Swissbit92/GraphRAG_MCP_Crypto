@@ -1,0 +1,86 @@
+//  mcp.json
+{
+    "name": "mcp_knowledge_graph",
+    "version": "0.1.0",
+    "tools": [
+      {
+        "name": "pipeline.run_batch",
+        "description": "Run the full batch pipeline over a directory of PDFs.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "pdf_dir": { "type": "string", "default": "data/pdfs" },
+            "out_dir": { "type": "string", "default": "outputs/run_simple" },
+            "push": { "type": "boolean", "default": true }
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "pipeline.process_pdf",
+        "description": "Process a single PDF end-to-end.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "pdf_path": { "type": "string" },
+            "out_dir": { "type": "string", "default": "outputs/run_simple" },
+            "push": { "type": "boolean", "default": true }
+          },
+          "required": ["pdf_path"]
+        }
+      },
+      {
+        "name": "graph.query",
+        "description": "Execute a SPARQL query against GraphDB.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "sparql": { "type": "string" },
+            "infer": { "type": "boolean", "default": true }
+          },
+          "required": ["sparql"]
+        }
+      },
+      {
+        "name": "graph.health",
+        "description": "Quick repo health: SHACL status and instance counts.",
+        "input_schema": { "type": "object", "properties": {}, "required": [] }
+      },
+      {
+        "name": "labels.validate",
+        "description": "Validate labels JSONL against contracts v0.1.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "labels_path": { "type": "string" }
+          },
+          "required": ["labels_path"]
+        }
+      },
+      {
+        "name": "labels.clean",
+        "description": "Apply guardrails to labels without re-running LLM.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "labels_in": { "type": "string" },
+            "labels_out": { "type": "string" },
+            "min_conf": { "type": "number", "default": 0.6 }
+          },
+          "required": ["labels_in", "labels_out"]
+        }
+      },
+      {
+        "name": "reports.overview",
+        "description": "Rebuild the overview report for a run directory.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "out_dir": { "type": "string", "default": "outputs/run_simple" }
+          },
+          "required": []
+        }
+      }
+    ]
+  }
+  
