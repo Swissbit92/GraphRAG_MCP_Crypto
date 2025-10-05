@@ -12,7 +12,17 @@ from .chunking.semantic_splitter import split_pages_to_chunks
 from .classify.llm_chunk_tagger import tag_chunk
 from .cluster.simple_communities import kmeans_text_clusters, co_mention_graph
 from .reports.summary import write_overview, write_json
-from .schema.contracts import validate_label_record  # ← NEW
+from .schema.contracts import validate_label_record  # ← schema v0.1 validator
+
+# (GraphRAG) — optional: indexes chunks into Chroma with entity_ids metadata
+try:
+    from .rag.chroma_store import ChromaRAG, iter_pipeline_records
+    _HAS_CHROMA = True
+except Exception:
+    # Chroma is optional; the pipeline still runs without it
+    ChromaRAG = None
+    iter_pipeline_records = None
+    _HAS_CHROMA = False
 
 
 def _is_boilerplate(ch_text: str) -> bool:
@@ -84,10 +94,8 @@ def process_pdf(pdf_path: Path, out_dir: Path):
             if not ok:
                 # Fail closed for structurally broken rows; log to sidecar file
                 dropped += 1
-                (labels_dir / f"{meta.doc_id}.labels.errors.log").open("a", encoding="utf-8").write(
-                    json.dumps({"chunk_id": ch["chunk_id"], "error": err, "raw": lab_rec}, ensure_ascii=False) + "\n"
-                )
-                # continue without writing the bad row
+                with (labels_dir / f"{meta.doc_id}.labels.errors.log").open("a", encoding="utf-8") as ef:
+                    ef.write(json.dumps({"chunk_id": ch["chunk_id"], "error": err, "raw": lab_rec}, ensure_ascii=False) + "\n")
                 continue
             f.write(json.dumps(norm, ensure_ascii=False) + "\n")
 
@@ -105,6 +113,38 @@ def load_all_labels(labels_dir: Path):
             for line in f:
                 all_labels.append(json.loads(line))
     return all_labels
+
+
+def _maybe_build_rag_index(outputs_dir: Path):
+    """
+    Optional GraphRAG step: index chunks into Chroma with entity_ids metadata.
+    Controlled by RAG_BUILD env (default: true). Requires Chroma to be installed.
+    """
+    rag_build = os.getenv("RAG_BUILD", "true").strip().lower() in ("1", "true", "yes")
+    if not rag_build:
+        print("[GraphRAG] Skipped (RAG_BUILD is disabled).")
+        return
+
+    if not _HAS_CHROMA:
+        print("[GraphRAG] Skipped (Chroma not available). Install 'chromadb' and ensure src/rag/chroma_store.py exists.")
+        return
+
+    labels_dir = outputs_dir / "labels"
+    chunks_dir = outputs_dir / "docs"   # chunks JSONL are written under docs/
+    if not labels_dir.exists():
+        print(f"[GraphRAG] Skipped (no labels dir at {labels_dir}).")
+        return
+    if not chunks_dir.exists():
+        print(f"[GraphRAG] Skipped (no docs dir at {chunks_dir}).")
+        return
+
+    collection = os.getenv("CHROMA_COLLECTION", "whitepapers")
+    persist_dir = os.getenv("CHROMA_DIR", ".chroma")
+
+    print(f"[GraphRAG] Building Chroma index → dir={persist_dir} collection={collection}")
+    rag = ChromaRAG(persist_dir=persist_dir, collection=collection, embedding_fn=None)  # auto-choose embed function
+    rag.upsert_chunks(iter_pipeline_records(labels_dir, chunks_dir))
+    print("[GraphRAG] Index updated.")
 
 
 def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
@@ -148,6 +188,8 @@ def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
 
     # Write the human overview report
     write_overview(out_dir, doc_summaries, kmeans, graph_comm)
+
+    # Push Entities to KG (entity-only sink)
     if os.getenv("GRAPHDB_PUSH", "").lower() in ("1", "true", "yes"):
         from .kg.graphdb_sink import push_labels_dir
         push_labels_dir(
@@ -156,6 +198,10 @@ def main(pdf_dir: str = "data/pdfs", out_dir: str = "outputs/run_simple"):
             repository=os.getenv("GRAPHDB_REPOSITORY", "mcp_kg"),
             batch_size=int(os.getenv("GRAPHDB_BATCH_SIZE", "100"))
         )
+
+    # (GraphRAG) Build/update vector index from labels + chunks
+    _maybe_build_rag_index(out_dir)
+
     print(f"\nDone. See report at: {out_dir}/reports/overview.md")
 
 

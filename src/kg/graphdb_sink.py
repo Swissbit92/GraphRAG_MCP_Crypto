@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Dict, Any, Iterable, List, Tuple, Optional
 import requests
 
-from .namespaces import sparql_prefix_block, iri_entity, iri_property, iri_class
+from .namespaces import sparql_prefix_block, iri_entity, iri_prop, iri_cls
 
 __all__ = ["GraphDB", "push_labels_dir"]
+
+# Feature flag: entity-only KG (default true)
+ENTITY_ONLY = os.getenv("KG_ENTITY_ONLY", "true").strip().lower() in ("1", "true", "yes")
 
 # --- config helpers ---
 def _endpoints(base_url: str, repo: str) -> Tuple[str, str]:
@@ -56,7 +59,6 @@ class GraphDB:
         Execute a SPARQL query. Returns the raw Response so callers can .json() or .text.
         """
         headers = {"Accept": accept}
-        # GraphDB supports POST for queries (preferred for long queries)
         resp = requests.post(
             self.query_endpoint,
             data={"query": sparql},
@@ -116,7 +118,7 @@ class GraphDB:
 
 
 # --- mapping from our labels JSON to triples --------------------------------
-# Our label records look like:
+# Label record shape (unchanged):
 # {
 #   "doc_id": "...",
 #   "chunk_id": "...",
@@ -127,83 +129,98 @@ class GraphDB:
 #   "confidence_overall": 0.42
 # }
 #
-# We'll emit:
-# ent:doc/<id>   a ex:Document ; rdfs:label "Title" .
-# ent:chunk/<id> a ex:Chunk ; ex:partOf ent:doc/<id> .
-# ent:chunk/<id> ex:sectionType "..." .
-# ent:token/<t>  a ex:Token ; rdfs:label "..." .
-# ent:chunk/<id> ex:mentions ent:token/<t> .
-# ent:chunk/<id> ex:labelConfidence "0.42"^^xsd:decimal .
+# ENTITY_ONLY = true:
+#   ids:doc/<id>    a mcp:Document ; dct:title "Title" ; mcp:pageCount N .
+#   ids:token/<t>   a crypto:Token ; rdfs:label "..." .
+#   ids:protocol/<p> a crypto:Protocol ; rdfs:label "..." .
+#   ids:component/<c> a crypto:Component ; rdfs:label "..." .
+#   ids:organization/<o> a org:Organization ; rdfs:label "..." .
+#
+# ENTITY_ONLY = false (back-compat):
+#   (legacy) also writes Chunk, mentions, sectionType, labelConfidence.
 
 def _triples_for_record(meta_index: Dict[str, Dict[str, Any]], rec: Dict[str, Any]) -> str:
     pre = sparql_prefix_block()
-    doc_id = rec["doc_id"]
-    chunk_id = rec["chunk_id"]
-    entities = rec.get("entities", {})
-    section_types = rec.get("section_type", [])
-    confidence = rec.get("confidence_overall")
-
-    doc_iri = iri_entity("doc", doc_id)
-    chunk_iri = iri_entity("chunk", chunk_id)
-
-    # Document triple (with label if we have meta)
-    title = meta_index.get(doc_id, {}).get("title")
-    pages = meta_index.get(doc_id, {}).get("pages")
+    doc_id = rec.get("doc_id")
+    entities = rec.get("entities", {}) or {}
 
     inserts: List[str] = []
 
-    inserts.append(f"{doc_iri} a {iri_class('Document')} .")
-    if title:
-        t = title.replace('"', '\\"')
-        inserts.append(f'{doc_iri} rdfs:label "{t}" .')
-    if pages is not None:
-        inserts.append(f"{doc_iri} {iri_property('pageCount')} \"{int(pages)}\"^^xsd:integer .")
+    # Optional Document (nice to have in KG for UI & joins)
+    if doc_id:
+        doc_iri = iri_entity("doc", doc_id)
+        title = meta_index.get(doc_id, {}).get("title")
+        pages = meta_index.get(doc_id, {}).get("pages")
 
-    # Chunk triples
-    inserts.append(f"{chunk_iri} a {iri_class('Chunk')} ; {iri_property('partOf')} {doc_iri} .")
+        inserts.append(f"{doc_iri} a {iri_cls('mcp','Document')} .")
+        if title:
+            t = str(title).replace('"', '\\"')
+            inserts.append(f'{doc_iri} dct:title "{t}" .')
+        if pages is not None:
+            try:
+                inserts.append(f'{doc_iri} {iri_prop("mcp","pageCount")} "{int(pages)}"^^xsd:integer .')
+            except Exception:
+                pass
 
-    # Section types as tags (lightweight)
-    for st in section_types:
-        st_lit = st.replace('"', '\\"')
-        inserts.append(f'{chunk_iri} {iri_property("sectionType")} "{st_lit}" .')
-
-    # Mentioned entities
+    # Entities (Token/Protocol/Component/Organization)
     def _emit(kind: str, vals: Iterable[str]):
+        ns, cls = {
+            "token":        ("crypto", "Token"),
+            "protocol":     ("crypto", "Protocol"),
+            "component":    ("crypto", "Component"),
+            "organization": ("org",    "Organization"),
+        }.get(kind, ("mcp", "Entity"))
         for v in vals or []:
-            v_clean = v.strip()
+            v_clean = (v or "").strip()
             if not v_clean:
                 continue
             ent_iri = iri_entity(kind, v_clean)
-            ent_class = {
-                "token": "Token",
-                "protocol": "Protocol",
-                "component": "Component",
-                "organization": "Organization"
-            }.get(kind, "Thing")
-            inserts.append(f"{ent_iri} a {iri_class(ent_class)} ; rdfs:label \"{v_clean.replace('\"','\\\\\"')}\" .")
-            inserts.append(f"{chunk_iri} {iri_property('mentions')} {ent_iri} .")
+            inserts.append(f"{ent_iri} a {iri_cls(ns, cls)} ; rdfs:label \"{v_clean.replace('\"','\\\\\"')}\" .")
 
-    _emit("token", entities.get("token"))
-    _emit("protocol", entities.get("protocol"))
-    _emit("component", entities.get("component"))
+    _emit("token",        entities.get("token"))
+    _emit("protocol",     entities.get("protocol"))
+    _emit("component",    entities.get("component"))
     _emit("organization", entities.get("organization"))
 
-    # Confidence (optional)
-    if isinstance(confidence, (int, float)):
-        inserts.append(f"{chunk_iri} {iri_property('labelConfidence')} \"{confidence}\"^^xsd:decimal .")
+    # If legacy mode is desired, add chunks/mentions here
+    if not ENTITY_ONLY:
+        # Legacy path (kept for backward compatibility)
+        chunk_id = rec.get("chunk_id")
+        section_types = rec.get("section_type", []) or []
+        confidence = rec.get("confidence_overall")
+
+        if doc_id and chunk_id:
+            chunk_iri = iri_entity("chunk", chunk_id)
+            # chunk & partOf
+            inserts.append(
+                f"{chunk_iri} a {iri_cls('mcp','Chunk')} ; "
+                f"{iri_prop('mcp','partOf')} {iri_entity('doc', doc_id)} ."
+            )
+            # section types
+            for st in section_types:
+                st_lit = str(st).replace('"', '\\"')
+                inserts.append(f'{chunk_iri} {iri_prop("mcp","sectionType")} "{st_lit}" .')
+            # mentions (emit links to any entities just created)
+            for kind, vals in (entities or {}).items():
+                for v in vals or []:
+                    v_clean = (v or "").strip()
+                    if not v_clean:
+                        continue
+                    ent_iri = iri_entity(kind, v_clean)
+                    inserts.append(f"{chunk_iri} {iri_prop('mcp','mentions')} {ent_iri} .")
+            # confidence
+            if isinstance(confidence, (int, float)):
+                inserts.append(f'{chunk_iri} {iri_prop("mcp","labelConfidence")} "{confidence}"^^xsd:decimal .')
 
     body = "\n".join(inserts)
     if not body.strip():
         return ""
-    # Use INSERT with FILTER NOT EXISTS to keep idempotency
-    guard = f"FILTER NOT EXISTS {{ {chunk_iri} a {iri_class('Chunk')} }}"
+
+    # RDF stores are set-based; INSERT DATA is idempotent in practice.
     return f"""{pre}
 
-INSERT {{
+INSERT DATA {{
 {body}
-}}
-WHERE {{
-  {guard}
 }}"""
 
 def _read_meta_index(docs_dir: Path) -> Dict[str, Dict[str, Any]]:
@@ -211,7 +228,8 @@ def _read_meta_index(docs_dir: Path) -> Dict[str, Dict[str, Any]]:
     for p in docs_dir.glob("*.meta.json"):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
-            idx[data["doc_id"]] = data
+            if "doc_id" in data:
+                idx[data["doc_id"]] = data
         except Exception:
             pass
     return idx
@@ -225,6 +243,7 @@ def push_labels_dir(
 ):
     """
     Read *.labels.jsonl under outputs/.../labels and push triples into GraphDB.
+    In ENTITY_ONLY mode, only entities (and optional documents) are written.
     """
     _, update_endpoint = _endpoints(graphdb_url, repository)
     labels_dir = out_dir / "labels"
@@ -234,7 +253,6 @@ def push_labels_dir(
     auth = _auth()
     headers = {"Content-Type": "application/sparql-update"}
 
-    # Collect SPARQL updates in mini-batches to reduce HTTP overhead
     batch: List[str] = []
 
     def _flush():

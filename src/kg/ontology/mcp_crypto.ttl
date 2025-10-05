@@ -1,0 +1,80 @@
+@prefix mcp:    <https://kg.mcp.ai/core/> .
+@prefix crypto: <https://kg.mcp.ai/crypto/> .
+@prefix skos:   <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf:   <http://xmlns.com/foaf/0.1/> .
+@prefix rdfs:   <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix org:    <http://www.w3.org/ns/org#> .
+
+# Core crypto entities
+crypto:Blockchain a rdfs:Class ;
+  rdfs:subClassOf mcp:Entity ;
+  rdfs:label "Blockchain" .
+
+crypto:ProofOfWork a rdfs:Class ;
+  rdfs:subClassOf crypto:Blockchain ;
+  rdfs:label "Proof of Work" .
+
+crypto:ProofOfStake a rdfs:Class ;
+  rdfs:subClassOf crypto:Blockchain ;
+  rdfs:label "Proof of Stake" .
+
+crypto:ProofOfHistory a rdfs:Class ;
+  rdfs:subClassOf crypto:Blockchain ;
+  rdfs:label "Proof of History" .
+
+crypto:Token a rdfs:Class ;
+  rdfs:subClassOf mcp:Entity ;
+  rdfs:label "Token" .
+
+crypto:Protocol a rdfs:Class ;
+  rdfs:subClassOf mcp:Entity ;
+  rdfs:label "Protocol" .
+
+crypto:Component a rdfs:Class ;
+  rdfs:subClassOf mcp:Entity ;
+  rdfs:label "Component" .
+
+# Reuse W3C ORG for organizations; treat as entities in practice
+org:Organization rdfs:subClassOf mcp:Entity .
+
+# Simple creator relation (keep if you need it)
+crypto:isCreatedBy a rdfs:Property ;
+  rdfs:domain crypto:Blockchain ;
+  rdfs:range  foaf:Agent ;
+  rdfs:label "is created by" .
+
+# Layers as SKOS (optional tag scheme)
+crypto:LayerScheme a skos:ConceptScheme ;
+  skos:prefLabel "Blockchain Layers" .
+
+crypto:layerL0 a skos:Concept ;
+  skos:prefLabel "L0" ;
+  skos:inScheme crypto:LayerScheme .
+
+crypto:layerL1 a skos:Concept ;
+  skos:prefLabel "L1" ;
+  skos:inScheme crypto:LayerScheme .
+
+crypto:layerL2 a skos:Concept ;
+  skos:prefLabel "L2" ;
+  skos:inScheme crypto:LayerScheme .
+
+# Use cases as SKOS (optional)
+crypto:UseCaseScheme a skos:ConceptScheme ;
+  skos:prefLabel "Use Cases" .
+
+crypto:oracle a skos:Concept ;
+  skos:prefLabel "Oracle" ;
+  skos:inScheme crypto:UseCaseScheme .
+
+crypto:defi a skos:Concept ;
+  skos:prefLabel "DeFi" ;
+  skos:inScheme crypto:UseCaseScheme .
+
+crypto:nft a skos:Concept ;
+  skos:prefLabel "NFT" ;
+  skos:inScheme crypto:UseCaseScheme .
+
+crypto:gaming a skos:Concept ;
+  skos:prefLabel "Gaming" ;
+  skos:inScheme crypto:UseCaseScheme .

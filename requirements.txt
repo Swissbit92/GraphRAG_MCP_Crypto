@@ -23,3 +23,6 @@ langchain-ollama
 # ✅ RDFLib for RDF handling
 langchain-community==0.3.4
 rdflib==7.1.1
+
+# ✅ ChromaDB for vector storage
+chromadb>=0.4.24

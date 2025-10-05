@@ -1,0 +1,20 @@
+@prefix mcp:   <https://kg.mcp.ai/core/> .
+@prefix dct:   <http://purl.org/dc/terms/> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Core, entity-first model (no Chunk, no mentions)
+mcp:Entity a rdfs:Class ;
+  rdfs:label "Entity" .
+
+# Optional: keep Document for minimal metadata (titles, counts)
+mcp:Document a rdfs:Class ;
+  rdfs:label "Document" .
+
+mcp:pageCount a rdfs:DatatypeProperty ;
+  rdfs:domain mcp:Document ;
+  rdfs:range xsd:integer ;
+  rdfs:label "page count" .
+
+# Use dct:title on Document or Entities when applicable.
+# Use rdfs:label for human-readable names of entities.
