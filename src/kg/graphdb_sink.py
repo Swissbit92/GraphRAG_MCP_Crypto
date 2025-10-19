@@ -24,6 +24,16 @@ def _auth() -> Optional[Tuple[str, str]]:
     pwd = os.getenv("GRAPHDB_PASSWORD")
     return (user, pwd) if user and pwd else None
 
+def _escape_lit(s: Any) -> str:
+    """
+    Escape a Python value for use as a plain RDF string literal content.
+    (We only need to escape backslashes and double-quotes.)
+    """
+    s = "" if s is None else str(s)
+    s = s.replace("\\", "\\\\")
+    s = s.replace('"', '\\"')
+    return s
+
 
 # === Minimal client class expected by src.mcp.tools ==========================
 class GraphDB:
@@ -154,7 +164,7 @@ def _triples_for_record(meta_index: Dict[str, Dict[str, Any]], rec: Dict[str, An
 
         inserts.append(f"{doc_iri} a {iri_cls('mcp','Document')} .")
         if title:
-            t = str(title).replace('"', '\\"')
+            t = _escape_lit(title)
             inserts.append(f'{doc_iri} dct:title "{t}" .')
         if pages is not None:
             try:
@@ -175,7 +185,8 @@ def _triples_for_record(meta_index: Dict[str, Dict[str, Any]], rec: Dict[str, An
             if not v_clean:
                 continue
             ent_iri = iri_entity(kind, v_clean)
-            inserts.append(f"{ent_iri} a {iri_cls(ns, cls)} ; rdfs:label \"{v_clean.replace('\"','\\\\\"')}\" .")
+            label_escaped = _escape_lit(v_clean)
+            inserts.append(f'{ent_iri} a {iri_cls(ns, cls)} ; rdfs:label "{label_escaped}" .')
 
     _emit("token",        entities.get("token"))
     _emit("protocol",     entities.get("protocol"))
@@ -198,7 +209,7 @@ def _triples_for_record(meta_index: Dict[str, Dict[str, Any]], rec: Dict[str, An
             )
             # section types
             for st in section_types:
-                st_lit = str(st).replace('"', '\\"')
+                st_lit = _escape_lit(st)
                 inserts.append(f'{chunk_iri} {iri_prop("mcp","sectionType")} "{st_lit}" .')
             # mentions (emit links to any entities just created)
             for kind, vals in (entities or {}).items():

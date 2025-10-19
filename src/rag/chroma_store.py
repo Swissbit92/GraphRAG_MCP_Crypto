@@ -1,30 +1,39 @@
-# src/rag/chroma_store.py
-# RAG store using ChromaDB (https://www.trychroma.com/)
-# Supports Ollama local embeddings or SentenceTransformers models.
-
 import os
 import json
 import hashlib
 from pathlib import Path
-from typing import Iterable, Dict, Any, List, Optional, Tuple
+from typing import Iterable, Dict, Any, List, Optional, Generator
 
+import requests
 import chromadb
 from chromadb.config import Settings
+from chromadb.api.types import Documents, Embeddings  # for type compatibility
 from chromadb.utils import embedding_functions
-import requests
 
 
-# -------- Embedding providers -------------------------------------------------
+# ----------------------------- Configuration ----------------------------------
+
+# How many per-item entity slots to store as scalar metadata fields.
+# Lists are not allowed in Chroma metadata, so we scatter across fixed slots.
+MAX_ENTITY_SLOTS = int(os.getenv("RAG_MAX_ENTITY_SLOTS", "8"))
+
+
+# ----------------------------- Embedding providers ----------------------------
 
 class OllamaEmbeddingFunction:
     """
-    Minimal local embedding via Ollama REST API.
+    Minimal local embedding via Ollama REST API compatible with Chroma's interface.
+
+    Chroma (>=0.4.16) expects:
+      - name(self) -> str
+      - __call__(self, input: Documents) -> Embeddings
 
     Env:
-      USE_OLLAMA_EMBED=true|false          (switch, default true)
+      USE_OLLAMA_EMBED=true|false
       OLLAMA_BASE=http://127.0.0.1:11434
-      OLLAMA_EMBED_MODEL=nomic-embed-text  (or another local embed model)
+      OLLAMA_EMBED_MODEL=nomic-embed-text
     """
+
     def __init__(self, base: Optional[str] = None, model: Optional[str] = None):
         self.base = (base or os.getenv("OLLAMA_BASE", "http://127.0.0.1:11434")).rstrip("/")
         self.model = model or os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
@@ -33,11 +42,16 @@ class OllamaEmbeddingFunction:
     def name(self) -> str:
         return f"ollama:{self.model}"
 
-    # Chroma ≥ 0.4.16 expects __call__(self, input)
-    def __call__(self, input: List[str]) -> List[List[float]]:
+    def __call__(self, input: Documents) -> Embeddings:
+        # input is list[str] per Chroma types (or a single str)
+        if isinstance(input, str):
+            texts = [input]
+        else:
+            texts = list(input or [])
+
         url = f"{self.base}/api/embeddings"
         out: List[List[float]] = []
-        for t in input:
+        for t in texts:
             resp = self.session.post(url, json={"model": self.model, "prompt": t})
             resp.raise_for_status()
             data = resp.json()
@@ -46,6 +60,26 @@ class OllamaEmbeddingFunction:
                 raise RuntimeError(f"Ollama embedding failed: {data}")
             out.append(vec)
         return out
+
+
+class SentenceTransformerWrapper:
+    """
+    Wrap sentence-transformers to match Chroma's embedding function interface.
+    """
+
+    def __init__(self, model_name: str):
+        self._ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
+        self._name = f"sentence-transformers:{model_name}"
+
+    def name(self) -> str:
+        return self._name
+
+    def __call__(self, input: Documents) -> Embeddings:
+        if isinstance(input, str):
+            docs = [input]
+        else:
+            docs = list(input or [])
+        return self._ef(docs)
 
 
 def build_embedding_function():
@@ -58,12 +92,13 @@ def build_embedding_function():
 
     model_name = os.getenv("SENTENCE_TRANSFORMER_MODEL")
     if model_name:
-        return embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
+        return SentenceTransformerWrapper(model_name=model_name)
 
+    # No embedding function configured; Chroma will require explicit embeddings on upsert
     return None
 
 
-# -------- RAG store ----------------------------------------------------------
+# ----------------------------- RAG store --------------------------------------
 
 class ChromaRAG:
     def __init__(
@@ -73,20 +108,17 @@ class ChromaRAG:
         embedding_fn=None,
     ):
         persist_dir = persist_dir or os.getenv("CHROMA_DIR", ".chroma")
-        self.client = chromadb.PersistentClient(path=persist_dir, settings=Settings(allow_reset=False))
+        self.client = chromadb.PersistentClient(
+            path=persist_dir,
+            settings=Settings(allow_reset=False)
+        )
+
         self.embedding_fn = embedding_fn if embedding_fn is not None else build_embedding_function()
 
-        # Optional: clean recreate if embedding config changed
-        reset = os.getenv("CHROMA_RESET", "false").lower() in ("1", "true", "yes")
-        if reset:
-            try:
-                self.client.delete_collection(name=collection)
-            except Exception:
-                pass  # fine if doesn't exist
-
+        # IMPORTANT: pass embedding_function to avoid conflicts and let Chroma build vectors
         self.col = self.client.get_or_create_collection(
             name=collection,
-            embedding_function=None if self.embedding_fn is None else self.embedding_fn,
+            embedding_function=self.embedding_fn,
             metadata={"hnsw:space": "cosine"},
         )
 
@@ -95,81 +127,61 @@ class ChromaRAG:
     def _normalize_id(s: str) -> str:
         return hashlib.sha1(s.encode("utf-8")).hexdigest()
 
-    @staticmethod
-    def _expand_item_for_entities(
-        item: Dict[str, Any],
-        base_id: str,
-    ) -> List[Tuple[str, str, Dict[str, Any]]]:
-        """
-        Turn a single item (with metadata.entity_ids list) into N records,
-        each with a scalar 'entity_id' in metadata. When no entities, create one with '__none__'.
-        Returns: list of (id, text, metadata)
-        """
-        text = (item.get("text") or "").strip()
-        if not text:
-            return []
-
-        md = dict(item.get("metadata", {}) or {})
-        # Pull list of entity_ids if present, else treat as no-entity
-        entity_ids_list: List[str] = md.pop("entity_ids", []) or []
-        # Always keep original chunk/doc ids
-        doc_id = md.get("doc_id")
-        chunk_id = md.get("chunk_id")
-
-        out: List[Tuple[str, str, Dict[str, Any]]] = []
-        if not entity_ids_list:
-            md1 = dict(md)
-            md1["entity_id"] = "__none__"  # scalar placeholder
-            out.append((base_id, text, md1))
-            return out
-
-        for i, eid in enumerate(entity_ids_list):
-            md_i = dict(md)
-            md_i["entity_id"] = str(eid)
-            # keep chunk/doc context for grouping later
-            md_i["doc_id"] = doc_id
-            md_i["chunk_id"] = chunk_id
-            out.append((f"{base_id}#e{i}", text, md_i))
-        return out
-
     # -- API --------------------------------------------------------------------
     def upsert_chunks(
         self,
         items: Iterable[Dict[str, Any]],
         id_prefix: str = "chunk:",
         require_embeddings: bool = False,
+        batch_size: int = 256,
     ):
         """
         items: iterable of dicts with keys:
-            - id (optional) | we generate one from (doc_id, chunk_id, sha1) if absent
+            - id (optional) | autogenerated from (doc_id, chunk_id, sha1) if absent
             - text (required)
             - metadata: { doc_id, chunk_id, entity_ids: [full IRIs], section_type, page, sha1, embed_model }
+        Notes:
+            - We convert entity_ids list into scalar slots: entity_id_0..entity_id_{N-1} and a CSV string entity_ids_csv.
         """
-        ids, docs, metadatas = [], [], []
+        batch_ids: List[str] = []
+        batch_docs: List[str] = []
+        batch_mds: List[Dict[str, Any]] = []
+
+        def _scalarize_metadata(md: Dict[str, Any]) -> Dict[str, Any]:
+            md = dict(md or {})
+            # Convert entity_ids (list) to scalar fields
+            ids_list = md.pop("entity_ids", None) or []
+            # keep a compact string for inspection / debug
+            md["entity_ids_csv"] = "|".join(ids_list) if ids_list else ""
+            md["entity_count"] = int(len(ids_list))
+            # spread across fixed slots
+            for i in range(min(len(ids_list), MAX_ENTITY_SLOTS)):
+                md[f"entity_id_{i}"] = ids_list[i]
+            return md
+
+        def flush():
+            if not batch_ids:
+                return
+            self.col.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_mds)
+            batch_ids.clear()
+            batch_docs.clear()
+            batch_mds.clear()
+
         for it in items:
-            md  = it.get("metadata", {}) or {}
-            base = it.get("id")
-            if not base:
-                base = self._normalize_id(f"{md.get('doc_id','')}/{md.get('chunk_id','')}/{md.get('sha1','')}")
-            base = f"{id_prefix}{base}"
+            text = (it.get("text") or "").strip()
+            if not text:
+                continue
+            md_raw  = it.get("metadata", {}) or {}
+            md = _scalarize_metadata(md_raw)
 
-            expanded = self._expand_item_for_entities(it, base)
-            for rid, text, rmd in expanded:
-                # Chroma requires scalar metadata values
-                for k, v in list(rmd.items()):
-                    if isinstance(v, (list, dict)):
-                        rmd[k] = json.dumps(v, ensure_ascii=False)
-                ids.append(rid)
-                docs.append(text)
-                metadatas.append(rmd)
+            cid = it.get("id") or self._normalize_id(f"{md.get('doc_id','')}/{md.get('chunk_id','')}/{md.get('sha1','')}")
+            batch_ids.append(f"{id_prefix}{cid}")
+            batch_docs.append(text)
+            batch_mds.append(md)
 
-        if not ids:
-            return
-
-        if self.embedding_fn is None and require_embeddings:
-            raise RuntimeError("No embedding function configured, and require_embeddings=True.")
-
-        self.col.upsert(ids=ids, documents=docs, metadatas=metadatas)
+            if len(batch_ids) >= batch_size:
+                flush()
+        flush()
 
     def query(
         self,
@@ -179,15 +191,20 @@ class ChromaRAG:
         where: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Basic retrieval. If entity_ids provided, filter by scalar 'entity_id'.
+        Basic retrieval. If entity_ids provided, filter by OR over entity_id_0..entity_id_{N-1}.
         """
         where = dict(where or {})
         if entity_ids:
-            vals = [str(e) for e in entity_ids if e]
-            if len(vals) == 1:
-                where.update({"entity_id": {"$in": vals}})
-            elif vals:
-                where["$or"] = [{"entity_id": {"$in": [v]}} for v in vals]
+            # Build OR over all slots for provided entity_ids
+            or_clauses: List[Dict[str, Any]] = []
+            for i in range(MAX_ENTITY_SLOTS):
+                or_clauses.append({f"entity_id_{i}": {"$in": entity_ids}})
+            # If there's already an $or, extend it; else add fresh
+            existing_or = where.get("$or")
+            if isinstance(existing_or, list):
+                existing_or.extend(or_clauses)
+            else:
+                where["$or"] = or_clauses
 
         res = self.col.query(
             query_texts=[text] if text else None,
@@ -197,14 +214,15 @@ class ChromaRAG:
         return res
 
 
-# -------- convenience loader for your pipeline outputs -----------------------
+# ---------------- convenience loader for your pipeline outputs ----------------
 
 def iter_pipeline_records(
     labels_dir: Path,
     chunks_dir: Path,
-) -> Iterable[Dict[str, Any]]:
+) -> Generator[Dict[str, Any], None, None]:
     """
     Joins labels (JSONL) with chunk texts by (doc_id, chunk_id).
+
     Expects:
       labels_dir/*.labels.jsonl
       chunks_dir/*.chunks.jsonl   -> records with keys: doc_id, chunk_id, text, page?, sha1?
@@ -236,16 +254,25 @@ def iter_pipeline_records(
                 if not text:
                     continue
 
-                # Build entity_ids as full IRIs from (kind, value)
+                # Resolve entity IRIs (full KG IRIs)
                 entity_ids: List[str] = []
                 ents = lab.get("entities", {}) or {}
+                # local import to avoid top-level circular imports
+                from src.kg.namespaces import iri_entity
                 for kind, vals in ents.items():
                     for v in vals or []:
                         v_clean = (v or "").strip()
                         if not v_clean:
                             continue
-                        from ..kg.namespaces import iri_entity
                         entity_ids.append(iri_entity(kind, v_clean)[1:-1])  # strip < >
+
+                # Prefer first section_type string if list
+                section_type_val = None
+                st = lab.get("section_type")
+                if isinstance(st, list) and st:
+                    section_type_val = st[0]
+                elif isinstance(st, str):
+                    section_type_val = st
 
                 yield {
                     "id": None,  # auto from hash
@@ -253,10 +280,9 @@ def iter_pipeline_records(
                     "metadata": {
                         "doc_id": lab.get("doc_id"),
                         "chunk_id": lab.get("chunk_id"),
-                        "entity_ids": entity_ids,  # list is OK here; we expand to scalar in upsert
-                        "section_type": (lab.get("section_type") or [None])[0]
-                            if isinstance(lab.get("section_type"), list)
-                            else lab.get("section_type"),
+                        # entity_ids list will be scalarized in upsert()
+                        "entity_ids": entity_ids,
+                        "section_type": section_type_val,
                         "page": chunk.get("page"),
                         "sha1": chunk.get("sha1"),
                         "embed_model": os.getenv("EMBED_MODEL_NAME", os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")),
