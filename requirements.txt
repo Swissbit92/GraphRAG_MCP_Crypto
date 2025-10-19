@@ -10,6 +10,7 @@ scikit-learn==1.5.1
 networkx==3.3
 requests==2.32.3
 pydantic==2.8.2
+pytest==7.4.2
 
 # ✅ For YAML parsing
 PyYAML==6.0.2
@@ -26,3 +27,6 @@ rdflib==7.1.1
 
 # ✅ ChromaDB for vector storage
 chromadb>=0.4.24
+
+# ✅ MCP Client
+fastmcp>=2.2
