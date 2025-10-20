@@ -10,7 +10,7 @@
 
 ---
 
-## 1) ✨ Overview
+## 1️⃣ ✨ Overview
 
 **GraphRAG MCP** is a modular, **local-first** system that turns crypto whitepapers into an **entity-centric Knowledge Graph** and a **vector-searchable corpus**, then answers questions with **RAG + optional KG enrichment + LLM synthesis** — all via standardized **FastMCP** tools.
 
