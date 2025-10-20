@@ -1,15 +1,19 @@
 # src/mcp/kg_server.py
+# Knowledge Graph MCP server for GraphDB interaction using FastMCP.
+# Tools: validate/push RDF labels, SPARQL query/update, list/get chunks, health.
+# Adds a read-only server.config tool for diagnostics (secrets masked).
 from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from fastmcp import FastMCP
+
+from src.config.settings import settings, apply_kg_logging
 
 # Optional: rdflib for local TTL validation when available
 try:
@@ -20,7 +24,8 @@ except Exception:  # pragma: no cover
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
-LOG_LEVEL = os.getenv("KG_MCP_LOG_LEVEL", "INFO").upper()
+apply_kg_logging()
+LOG_LEVEL = (settings.kg.log_level or "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s [%(levelname)s] kg_mcp: %(message)s",
@@ -28,18 +33,18 @@ logging.basicConfig(
 log = logging.getLogger("kg_mcp")
 
 # -----------------------------------------------------------------------------
-# Env / defaults
+# Config / defaults (via unified settings)
 # -----------------------------------------------------------------------------
-GRAPHDB_URL = os.getenv("GRAPHDB_URL", "http://localhost:7200").rstrip("/")
-GRAPHDB_REPOSITORY = os.getenv("GRAPHDB_REPOSITORY", "mcp_kg")
-GRAPHDB_USERNAME = os.getenv("GRAPHDB_USERNAME")  # optional
-GRAPHDB_PASSWORD = os.getenv("GRAPHDB_PASSWORD")  # optional
+GRAPHDB_URL = settings.GRAPHDB_URL
+GRAPHDB_REPOSITORY = settings.GRAPHDB_REPOSITORY
+GRAPHDB_USERNAME = settings.graphdb.username  # optional
+GRAPHDB_PASSWORD = settings.graphdb.password  # optional
 
-KG_ONTOLOGY_PATH = os.getenv("KG_ONTOLOGY_PATH")
-KG_SHAPES_PATH = os.getenv("KG_SHAPES_PATH")
+KG_ONTOLOGY_PATH = settings.kg.ontology_path
+KG_SHAPES_PATH = settings.kg.shapes_path
 
-DEFAULT_LABELS_DIR = os.getenv("KG_LABELS_DIR", "outputs/run_simple/labels")
-DEFAULT_DOCS_DIR = os.getenv("KG_DOCS_DIR", "outputs/run_simple/docs")
+DEFAULT_LABELS_DIR = settings.kg.labels_dir
+DEFAULT_DOCS_DIR = settings.kg.docs_dir
 
 # -----------------------------------------------------------------------------
 # HTTP helpers
@@ -75,7 +80,7 @@ class ValidateLabelsOutput(BaseModel):
 class PushLabelsInput(BaseModel):
     labels_dir: str = Field(default=DEFAULT_LABELS_DIR, description="Directory with *.ttl to POST to GraphDB.")
     context: Optional[str] = Field(default=None, description="Named graph IRI to insert into (optional).")
-    chunk_size: int = Field(default=1_000_000, ge=1000, description="Unused now; reserved for future streaming logic.")
+    chunk_size: int = Field(default=1_000_000, ge=1000, description="Reserved for future streaming logic.")
 
 class PushLabelsOutput(BaseModel):
     ok: bool
@@ -119,6 +124,11 @@ class KgHealthOutput(BaseModel):
     repository: str
     triple_count: int
     auth_configured: bool
+
+# New: config output schema
+class ServerConfigOutput(BaseModel):
+    ok: bool = True
+    config: Dict[str, Any]
 
 # -----------------------------------------------------------------------------
 # Server
@@ -283,13 +293,7 @@ def get_chunk_impl(inp: GetChunkInput) -> GetChunkOutput:
 
 
 def kg_health_impl() -> KgHealthOutput:
-    """
-    Probe GraphDB repository and return a small health summary.
-    - Tries GET /repositories/{repo}/size (preferred); falls back to a COUNT(*) SPARQL if needed.
-    """
     triple_count = -1
-
-    # Preferred: native size endpoint
     try:
         resp = requests.get(_repo_size_url(), auth=_auth(), timeout=20)
         if resp.status_code == 200:
@@ -300,7 +304,6 @@ def kg_health_impl() -> KgHealthOutput:
     except Exception:
         triple_count = -1
 
-    # Fallback via SPARQL COUNT
     if triple_count < 0:
         try:
             q = "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }"
@@ -328,8 +331,10 @@ def kg_health_impl() -> KgHealthOutput:
     )
 
 # -----------------------------------------------------------------------------
-# FastMCP wrappers (with descriptions)
+# FastMCP wrappers
 # -----------------------------------------------------------------------------
+mcp = FastMCP("kg")
+
 @mcp.tool(
     name="validate_labels",
     description="Validate Turtle files in a directory (syntax-level). If rdflib is installed, parses each file.",
@@ -379,8 +384,16 @@ def tool_get_chunk(inp: GetChunkInput) -> GetChunkOutput:
 def tool_kg_health() -> KgHealthOutput:
     return kg_health_impl()
 
+# NEW: server.config (diagnostics)
+@mcp.tool(
+    name="server.config",
+    description="Return the server's effective configuration (secrets masked).",
+)
+def tool_server_config_kg() -> ServerConfigOutput:
+    return ServerConfigOutput(config=settings.as_dict())
+
 # -----------------------------------------------------------------------------
-# Test-friendly aliases (so tests can call directly)
+# Test-friendly aliases
 # -----------------------------------------------------------------------------
 validate_labels = validate_labels_impl
 push_labels = push_labels_impl

@@ -1,16 +1,20 @@
 # src/mcp/rag_server.py
+# GraphRAG MCP server for RAG operations using FastMCP.
+# Provides tools for searching, reindexing, embedding/indexing, deleting,
+# health checks, and QA over a Chroma vector store with optional KG enrichment.
+# Adds a read-only server.config tool for diagnostics (secrets masked).
 from __future__ import annotations
 
 import logging
-import os
 import time
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import requests
 
 from pydantic import BaseModel, Field, model_validator
 from fastmcp import FastMCP
 
+from src.config.settings import settings, apply_rag_logging
 from src.rag.chroma_store import ChromaRAG, iter_pipeline_records, build_rag_index
 
 # Optional: prefixes for KG SPARQL enrichment
@@ -22,7 +26,8 @@ except Exception:  # pragma: no cover
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
-LOG_LEVEL = os.getenv("RAG_MCP_LOG_LEVEL", "INFO").upper()
+apply_rag_logging()
+LOG_LEVEL = (settings.rag.log_level or "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s [%(levelname)s] rag_mcp: %(message)s",
@@ -30,26 +35,26 @@ logging.basicConfig(
 log = logging.getLogger("rag_mcp")
 
 # -----------------------------------------------------------------------------
-# Env / defaults
+# Config / defaults (via unified settings)
 # -----------------------------------------------------------------------------
-DEFAULT_CHROMA_DIR = os.getenv("CHROMA_DIR", ".chroma")
-DEFAULT_COLLECTION = os.getenv("CHROMA_COLLECTION", "whitepapers")
-DEFAULT_OUTPUTS_DIR = os.getenv("RAG_OUTPUTS_DIR", "outputs/run_simple")
+DEFAULT_CHROMA_DIR = settings.CHROMA_DIR
+DEFAULT_COLLECTION = settings.CHROMA_COLLECTION
+DEFAULT_OUTPUTS_DIR = settings.rag.outputs_dir
 
 # KG enrichment toggles
-QA_KG_ENRICH = os.getenv("QA_KG_ENRICH", "true").strip().lower() in ("1", "true", "yes")
-GRAPHDB_URL = os.getenv("GRAPHDB_URL", "http://localhost:7200").rstrip("/")
-GRAPHDB_REPOSITORY = os.getenv("GRAPHDB_REPOSITORY", "mcp_kg")
-GRAPHDB_USERNAME = os.getenv("GRAPHDB_USERNAME")
-GRAPHDB_PASSWORD = os.getenv("GRAPHDB_PASSWORD")
+QA_KG_ENRICH = bool(settings.rag.qa_kg_enrich)
+GRAPHDB_URL = settings.GRAPHDB_URL
+GRAPHDB_REPOSITORY = settings.GRAPHDB_REPOSITORY
+GRAPHDB_USERNAME = settings.graphdb.username
+GRAPHDB_PASSWORD = settings.graphdb.password
 
 # LLM
-QA_LLM_MODEL = os.getenv("QA_LLM_MODEL") or os.getenv("OLLAMA_MODEL") or "llama3.1:latest"
-QA_LLM_MODE = os.getenv("QA_LLM_MODE", "").strip().lower()  # "mock" to force offline
-OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://127.0.0.1:11434").rstrip("/")
+QA_LLM_MODEL = settings.rag.qa_llm_model or settings.ollama.model
+QA_LLM_MODE = (settings.rag.qa_mode or "").strip().lower()  # "mock" to force offline
+OLLAMA_BASE = settings.OLLAMA_BASE
 
 # -----------------------------------------------------------------------------
-# Pydantic schemas for existing tools (unchanged)
+# Pydantic schemas (interfaces unchanged)
 # -----------------------------------------------------------------------------
 class SearchInput(BaseModel):
     text: Optional[str] = Field(
@@ -145,9 +150,7 @@ class HealthOutput(BaseModel):
     has_embeddings: bool
     expand_per_entity: bool
 
-# -----------------------------------------------------------------------------
-# NEW: QA schemas
-# -----------------------------------------------------------------------------
+# QA schemas
 class CitationItem(BaseModel):
     doc_id: Optional[str] = None
     chunk_id: Optional[str] = None
@@ -190,6 +193,12 @@ class QAOutput(BaseModel):
     model_used: str
     debug: Optional[Dict[str, Any]] = None
 
+
+# New: config output schema
+class ServerConfigOutput(BaseModel):
+    ok: bool = True
+    config: Dict[str, Any]
+
 # -----------------------------------------------------------------------------
 # Server bootstrap
 # -----------------------------------------------------------------------------
@@ -199,7 +208,7 @@ mcp = FastMCP("rag")
 _RAG_CACHE: Dict[str, ChromaRAG] = {}
 
 def _get_rag(collection: Optional[str] = None) -> ChromaRAG:
-    """Construct (or reuse) a ChromaRAG instance honoring env defaults."""
+    """Construct (or reuse) a ChromaRAG instance honoring unified settings."""
     col = collection or DEFAULT_COLLECTION
     inst = _RAG_CACHE.get(col)
     if inst is not None:
@@ -215,22 +224,15 @@ def _get_rag(collection: Optional[str] = None) -> ChromaRAG:
     return inst
 
 # -----------------------------------------------------------------------------
-# Helpers: normalize Chroma results → citations
+# Helpers
 # -----------------------------------------------------------------------------
 def _norm_citations(chroma_res: Dict[str, Any]) -> List[CitationItem]:
-    """
-    Chroma .query includes arrays (possibly with one batch). We normalize
-    into a flat list of CitationItem.
-    """
     docs = chroma_res.get("documents") or []
     metas = chroma_res.get("metadatas") or []
-
-    # Chroma returns [ [..] ] if query_texts provided; support both shapes.
     if docs and isinstance(docs[0], list):
         docs = docs[0]
     if metas and isinstance(metas[0], list):
         metas = metas[0]
-
     out: List[CitationItem] = []
     for d, m in zip(docs, metas):
         if not isinstance(d, str) or not isinstance(m, dict):
@@ -247,26 +249,18 @@ def _norm_citations(chroma_res: Dict[str, Any]) -> List[CitationItem]:
         )
     return out
 
-# -----------------------------------------------------------------------------
-# Helpers: KG enrichment (labels/aliases)
-# -----------------------------------------------------------------------------
 def _kg_auth():
     if GRAPHDB_USERNAME and GRAPHDB_PASSWORD:
         return requests.auth.HTTPBasicAuth(GRAPHDB_USERNAME, GRAPHDB_PASSWORD)
     return None
 
 def _kg_enrich_aliases(entity_iris: List[str]) -> Dict[str, List[str]]:
-    """
-    Return map: IRI -> [labels/altLabels]. Best-effort; failures yield {}.
-    """
     if not entity_iris:
         return {}
     try:
         pref = sparql_prefix_block()
     except Exception:
         pref = ""
-
-    # Build VALUES clause
     iris_clause = " ".join(f"<{iri}>" for iri in entity_iris[:128])  # clamp
     q = f"""{pref}
 SELECT ?s ?label
@@ -297,13 +291,7 @@ WHERE {{
         log.warning("KG enrich failed: %s", e)
         return {}
 
-# -----------------------------------------------------------------------------
-# Helpers: LLM synthesis (mock or Ollama)
-# -----------------------------------------------------------------------------
 def _mock_answer(question: str, citations: List[CitationItem], kg_notes: Dict[str, List[str]]) -> str:
-    """
-    Deterministic offline answer: use the top snippet(s) and any KG labels.
-    """
     snippets = []
     for i, c in enumerate(citations[:2], 1):
         snippets.append(f"[{i}] {c.text[:300].strip()}")
@@ -321,16 +309,8 @@ def _mock_answer(question: str, citations: List[CitationItem], kg_notes: Dict[st
     return "\n\n".join(parts)
 
 def _ollama_generate(model: str, prompt: str, base: str = OLLAMA_BASE, temperature: float = 0.2) -> str:
-    """
-    Minimal Ollama /api/generate call. Returns the final 'response' string.
-    """
     url = f"{base}/api/generate"
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"temperature": temperature},
-    }
+    payload = {"model": model, "prompt": prompt, "stream": False, "options": {"temperature": temperature}}
     r = requests.post(url, json=payload, timeout=120)
     r.raise_for_status()
     data = r.json()
@@ -338,9 +318,6 @@ def _ollama_generate(model: str, prompt: str, base: str = OLLAMA_BASE, temperatu
     return resp.strip()
 
 def _build_prompt(question: str, citations: List[CitationItem], kg_notes: Dict[str, List[str]]) -> str:
-    """
-    Compose a concise prompt with numbered snippets and (optional) KG aliases.
-    """
     lines = []
     lines.append("You are a precise crypto research assistant. Answer concisely and cite snippets as [1], [2], ...")
     if kg_notes:
@@ -350,7 +327,6 @@ def _build_prompt(question: str, citations: List[CitationItem], kg_notes: Dict[s
                 lines.append(f"- {iri}: aliases = {', '.join(labels[:5])}")
     lines.append("\nContext snippets:")
     for i, c in enumerate(citations, 1):
-        # Keep the prompt compact
         snippet = c.text.replace("\n", " ").strip()
         if len(snippet) > 600:
             snippet = snippet[:600] + " ..."
@@ -374,7 +350,6 @@ def rag_search_impl(inp: SearchInput) -> Dict[str, Any]:
         include=inp.include or ["metadatas", "documents", "distances"],
     )
     took_ms = int((time.perf_counter() - t0) * 1000)
-
     docs = res.get("documents")
     if isinstance(docs, list) and docs and isinstance(docs[0], list):
         n = len(docs[0])
@@ -382,11 +357,8 @@ def rag_search_impl(inp: SearchInput) -> Dict[str, Any]:
         n = len(docs)
     else:
         n = 0
-
-    log.info(
-        "rag.search k=%s text=%s entities=%s -> %s in %sms",
-        inp.k, bool(inp.text), len(inp.entity_ids or []), n, took_ms
-    )
+    log.info("rag.search k=%s text=%s entities=%s -> %s in %sms",
+             inp.k, bool(inp.text), len(inp.entity_ids or []), n, took_ms)
     return {"results": res, "took_ms": took_ms}
 
 
@@ -399,13 +371,11 @@ def rag_reindex_impl(inp: ReindexInput) -> Dict[str, Any]:
 
 def rag_embed_and_index_impl(inp: EmbedAndIndexInput) -> Dict[str, Any]:
     rag = _get_rag(inp.collection)
-
     if inp.records:
         items = [{"id": r.id, "text": r.text, "metadata": r.metadata} for r in inp.records]
         rag.upsert_chunks(items, require_embeddings=inp.require_embeddings)
         log.info("rag.embed_and_index upserted records=%s", len(items))
         return {"ok": True, "mode": "records", "count": len(items)}
-
     from pathlib import Path
     labels_dir = Path(inp.labels_dir)  # type: ignore[arg-type]
     chunks_dir = Path(inp.chunks_dir)  # type: ignore[arg-type]
@@ -440,11 +410,8 @@ def rag_health_impl() -> HealthOutput:
         expand_per_entity=bool(getattr(rag, "expand_per_entity", False)),
     )
 
-# ------------------------- NEW: rag.qa implementation -------------------------
 def rag_qa_impl(inp: QAInput) -> QAOutput:
     t0 = time.perf_counter()
-
-    # 1) Retrieve
     rag = _get_rag(inp.collection)
     res = rag.query(
         text=inp.question,
@@ -455,12 +422,9 @@ def rag_qa_impl(inp: QAInput) -> QAOutput:
         include=["metadatas", "documents", "distances"],
     )
     citations = _norm_citations(res)
-
-    # 2) Optional KG enrich
     do_enrich = QA_KG_ENRICH if inp.kg_enrich is None else bool(inp.kg_enrich)
     kg_notes: Dict[str, List[str]] = {}
     if do_enrich:
-        # collect unique entity IRIs from the citations
         iris: List[str] = []
         for c in citations:
             for e in c.entity_ids:
@@ -468,8 +432,6 @@ def rag_qa_impl(inp: QAInput) -> QAOutput:
                     iris.append(e)
         if iris:
             kg_notes = _kg_enrich_aliases(iris)
-
-    # 3) LLM synthesis (mock or Ollama)
     model = inp.llm_model or QA_LLM_MODEL
     use_mock = (inp.use_mock_llm is True) or (QA_LLM_MODE == "mock")
     if use_mock:
@@ -480,25 +442,23 @@ def rag_qa_impl(inp: QAInput) -> QAOutput:
         try:
             answer = _ollama_generate(model=model, prompt=prompt)
             model_used = model
-        except Exception as e:  # pragma: no cover (network issues)
+        except Exception as e:  # pragma: no cover
             log.warning("LLM call failed, falling back to mock: %s", e)
             answer = _mock_answer(inp.question, citations, kg_notes)
             model_used = "mock-llm(fallback)"
-
     took_ms = int((time.perf_counter() - t0) * 1000)
     log.info("rag.qa qlen=%s k=%s entities=%s -> %s cites in %sms",
              len(inp.question), inp.k, len(inp.entity_ids or []), len(citations), took_ms)
-
     return QAOutput(
         answer=answer.strip(),
         citations=citations,
         took_ms=took_ms,
         model_used=model_used,
-        debug={"retrieval_count": len(citations)}
+        debug={"retrieval_count": len(citations)},
     )
 
 # -----------------------------------------------------------------------------
-# FastMCP tool wrappers (now with descriptions)
+# FastMCP tool wrappers
 # -----------------------------------------------------------------------------
 @mcp.tool(
     name="rag.search",
@@ -535,7 +495,6 @@ def tool_rag_delete(inp: DeleteInput) -> Dict[str, Any]:
 def tool_rag_health() -> HealthOutput:
     return rag_health_impl()
 
-# NEW tool
 @mcp.tool(
     name="rag.qa",
     description="Question answering over the RAG index with optional KG enrichment and LLM synthesis.",
@@ -543,8 +502,16 @@ def tool_rag_health() -> HealthOutput:
 def tool_rag_qa(inp: QAInput) -> QAOutput:
     return rag_qa_impl(inp)
 
+# NEW: server.config (diagnostics)
+@mcp.tool(
+    name="server.config",
+    description="Return the server's effective configuration (secrets masked).",
+)
+def tool_server_config_rag() -> ServerConfigOutput:
+    return ServerConfigOutput(config=settings.as_dict())
+
 # -----------------------------------------------------------------------------
-# Test-friendly aliases (so tests can call rag_* directly)
+# Test-friendly aliases
 # -----------------------------------------------------------------------------
 rag_search = rag_search_impl
 rag_reindex = rag_reindex_impl

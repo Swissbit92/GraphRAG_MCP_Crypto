@@ -62,7 +62,8 @@
       "sparql_query",
       "sparql_update",
       "list_documents",
-      "get_chunk"
+      "get_chunk",
+      "server.config"
     ],
     "rag": [
       "rag.search",
@@ -70,7 +71,8 @@
       "rag.embed_and_index",
       "rag.delete",
       "rag.health",
-      "rag.qa"
+      "rag.qa",
+      "server.config"
     ],
     "indicators": [
       "indicator.list",

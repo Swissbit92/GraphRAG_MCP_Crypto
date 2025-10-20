@@ -1,0 +1,276 @@
+################################################################################
+# 🧠 GraphRAG MCP Project
+# ==========================
+# A local FastMCP-based GraphRAG stack with Chroma RAG and GraphDB KG access.
+# Setup instructions in README.md.
+################################################################################
+# catalog.yaml — GraphRAG MCP catalog entry
+version: 1
+name: GraphRAG MCP
+id: graphrag-mcp
+description: >
+  Local GraphRAG stack exposing two FastMCP servers:
+  - rag: Chroma-based RAG (Ollama embeddings) with QA and entity filters
+  - kg:  GraphDB repository access (SPARQL + TTL ingest)
+homepage: https://example.local/graph_rag_mcp
+maintainer: you
+license: MIT
+
+servers:
+  - id: rag
+    type: stdio
+    command: python
+    args: ["-m", "src.mcp.rag_server"]
+    env:
+      PYTHONUNBUFFERED: "1"
+      CHROMA_DIR: ".chroma"
+      CHROMA_COLLECTION: "whitepapers"
+      RAG_OUTPUTS_DIR: "outputs/run_simple"
+      RAG_EXPAND_PER_ENTITY: "true"
+      # Embeddings (Ollama by default)
+      OLLAMA_BASE: "http://127.0.0.1:11434"
+      OLLAMA_EMBED_MODEL: "nomic-embed-text"
+      # Optional QA synthesis
+      OLLAMA_MODEL: "llama3.1:latest"
+      QA_LLM_MODEL: "llama3.1:latest"
+      QA_KG_ENRICH: "true"
+
+    tools:
+      - name: rag.search
+        description: Semantic / filtered retrieval from Chroma (optionally filter by entity_ids and metadata).
+        input_schema:
+          type: object
+          properties:
+            text: { type: string, description: "Query text (optional if using only filters)." }
+            entity_ids:
+              type: array
+              items: { type: string }
+              description: "Filter by KG entity IRIs (scalar 'entity_id')."
+            k: { type: integer, default: 8 }
+            where: { type: object }
+            where_document: { type: object }
+            include:
+              type: array
+              items: { type: string }
+            collection: { type: string }
+        examples:
+          - title: Top 6 chunks mentioning Bitcoin blocks
+            call:
+              input:
+                text: "block production and consensus"
+                k: 6
+                where_document: { "$contains": "block" }
+
+      - name: rag.embed_and_index
+        description: Add new records (direct or by joining labels_dir + chunks_dir).
+        input_schema:
+          type: object
+          properties:
+            records:
+              type: array
+              items:
+                type: object
+                properties:
+                  text: { type: string }
+                  metadata: { type: object }
+                  id: { type: string }
+            labels_dir: { type: string }
+            chunks_dir: { type: string }
+            collection: { type: string }
+            require_embeddings: { type: boolean, default: false }
+          anyOf:
+            - required: ["records"]
+            - required: ["labels_dir", "chunks_dir"]
+        examples:
+          - title: Index from pipeline outputs
+            call:
+              input:
+                labels_dir: "outputs/run_simple/labels"
+                chunks_dir: "outputs/run_simple/docs"
+
+      - name: rag.reindex
+        description: Rebuild collection from pipeline outputs.
+        input_schema:
+          type: object
+          properties:
+            outputs_dir: { type: string, default: "outputs/run_simple" }
+            collection: { type: string }
+        examples:
+          - title: Reindex default run
+            call:
+              input: {}
+
+      - name: rag.delete
+        description: Delete items by ids or metadata filter (where). Ids auto-normalized to 'chunk:' prefix.
+        input_schema:
+          type: object
+          properties:
+            ids:
+              type: array
+              items: { type: string }
+            where: { type: object }
+            collection: { type: string }
+          anyOf:
+            - required: ["ids"]
+            - required: ["where"]
+        examples:
+          - title: Delete everything for one doc
+            call:
+              input:
+                where: { "doc_id": { "$eq": "bitcoin-whitepaper" } }
+
+      - name: rag.health
+        description: Basic store diagnostics (collection, count, embedding status).
+        input_schema:
+          type: object
+          properties: {}
+
+      - name: rag.qa
+        description: Question answering over the RAG index with optional KG enrichment and LLM synthesis.
+        input_schema:
+          type: object
+          properties:
+            question: { type: string }
+            entity_ids:
+              type: array
+              items: { type: string }
+            k: { type: integer, default: 8 }
+            where: { type: object }
+            where_document: { type: object }
+            collection: { type: string }
+            llm_model: { type: string }
+            use_mock_llm: { type: boolean }
+            kg_enrich: { type: boolean }
+          required: ["question"]
+        examples:
+          - title: What problem does Bitcoin aim to solve?
+            call:
+              input:
+                question: "What problem does Bitcoin aim to solve?"
+                k: 8
+                where_document: { "$contains": "Bitcoin" }
+
+      - name: server.config
+        description: Return the server's effective configuration (secrets masked).
+        input_schema:
+          type: object
+          properties: {}
+        examples:
+          - title: Print server config
+            call:
+              input: {}
+
+  - id: kg
+    type: stdio
+    command: python
+    args: ["-m", "src.mcp.kg_server"]
+    env:
+      PYTHONUNBUFFERED: "1"
+      GRAPHDB_URL: "http://localhost:7200"
+      GRAPHDB_REPOSITORY: "mcp_kg"
+      GRAPHDB_USERNAME: "admin"           # optional
+      # GRAPHDB_PASSWORD: "<set via coordinator secrets>"
+      GRAPHDB_PUSH: "true"
+      KG_ENTITY_ONLY: "true"
+      KG_ONTOLOGY_PATH: "src/kg/ontology/mcp-core.ttl"
+      KG_SHAPES_PATH: "src/kg/ontology/mcp-crypto.ttl"
+      KG_LABELS_DIR: "outputs/run_simple/labels"
+      KG_DOCS_DIR: "outputs/run_simple/docs"
+
+    tools:
+      - name: validate_labels
+        description: Validate Turtle files in a directory (syntax-level via rdflib when available).
+        input_schema:
+          type: object
+          properties:
+            labels_dir: { type: string, default: "outputs/run_simple/labels" }
+            ontology_path: { type: string }
+            shapes_path: { type: string }
+        examples:
+          - title: Validate default labels
+            call:
+              input: {}
+
+      - name: push_labels
+        description: POST *.ttl files into GraphDB (optionally into a named graph).
+        input_schema:
+          type: object
+          properties:
+            labels_dir: { type: string, default: "outputs/run_simple/labels" }
+            context: { type: string }
+            chunk_size: { type: integer, default: 1000000 }
+        examples:
+          - title: Push labels to default repo
+            call:
+              input: {}
+
+      - name: sparql_query
+        description: Run a SPARQL query; returns JSON if available, otherwise raw text.
+        input_schema:
+          type: object
+          properties:
+            query: { type: string }
+            accept: { type: string, default: "application/sparql-results+json" }
+          required: ["query"]
+        examples:
+          - title: List 5 entities
+            call:
+              input:
+                query: "SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 5"
+
+      - name: sparql_update
+        description: Run a SPARQL UPDATE (INSERT/DELETE/CLEAR GRAPH).
+        input_schema:
+          type: object
+          properties:
+            update: { type: string }
+          required: ["update"]
+        examples:
+          - title: Insert a test triple
+            call:
+              input:
+                update: |
+                  INSERT DATA { <https://kg.mcp.ai/id/test/one> <http://www.w3.org/2000/01/rdf-schema#label> "Test" . }
+
+      - name: list_documents
+        description: Aggregate doc_id → chunk counts from pipeline JSONL outputs.
+        input_schema:
+          type: object
+          properties:
+            docs_dir: { type: string, default: "outputs/run_simple/docs" }
+            limit: { type: integer, default: 100 }
+        examples:
+          - title: List default docs
+            call:
+              input: {}
+
+      - name: get_chunk
+        description: Fetch one chunk record by doc_id (and optional chunk_id).
+        input_schema:
+          type: object
+          properties:
+            docs_dir: { type: string, default: "outputs/run_simple/docs" }
+            doc_id: { type: string }
+            chunk_id: { type: string }
+          required: ["doc_id"]
+        examples:
+          - title: Get first chunk of a doc
+            call:
+              input:
+                doc_id: "bitcoin-whitepaper"
+
+      - name: kg.health
+        description: Basic GraphDB diagnostics (triple count, auth flag).
+        input_schema:
+          type: object
+          properties: {}
+
+      - name: server.config
+        description: Return the server's effective configuration (secrets masked).
+        input_schema:
+          type: object
+          properties: {}
+        examples:
+          - title: Print server config
+            call:
+              input: {}
