@@ -111,32 +111,34 @@ It’s designed for *clarity*, *privacy*, and *modular scalability*.
             └───────────────────┬────────────────────┘
                                 │
                                 ▼
-     ┌─────────────────────────────────────────────┐
-     │           📄 Ingestion & Labeling           │
-     │  pdf_reader → semantic_splitter →           │
-     │  llm_chunk_tagger → postprocess             │
-     └───────────────────┬─────────────────────────┘
-                         │
-                ┌────────┴────────┐
-                │                 │
-                ▼                 ▼
-     ┌────────────────┐   ┌──────────────────────┐
-     │ 🧠 GraphDB KG   │   │ 💾 Chroma RAG        │
-     │ Entities & IRIs │   │ Chunks + Embeddings  │
-     └────────┬────────┘   └────────┬────────────┘
-              │                     │
-              ▼                     ▼
-        ┌───────────────┐      ┌───────────────┐
-        │ ⚙️ kg_server   │      │ ⚙️ rag_server  │
-        │ (FastMCP)     │      │ (FastMCP)     │
-        └────────┬──────┘      └──────┬────────┘
-                 │                     │
-                 └────────┬────────────┘
-                          ▼
-          ┌────────────────────────────────┐
-          │ 💬 MCP Coordinator / Streamlit │
-          │  User-facing Q&A Interface     │
-          └────────────────────────────────┘
+            ┌─────────────────────────────────────────────┐
+            │      📄 Ingestion & Labeling                │
+            │  pdf_reader → semantic_splitter →           │
+            │  llm_chunk_tagger → postprocess             │
+            └───────────────────┬─────────────────────────┘
+                                 │
+                        ┌────────┴────────┐
+                        │                 │
+                        ▼                 ▼
+            ┌────────────────┐    ┌──────────────────────┐
+            │ 🧠 GraphDB KG  │    │ 💾 Chroma RAG      │
+            │ Entities & IRIs │   │ Chunks + Embeddings │
+            └────────┬────────┘   └────────┬────────────┘
+                     │                     │
+                     ▼                     ▼
+               ┌───────────────┐      ┌───────────────┐
+               │ ⚙️ kg_server  │     │ ⚙️ rag_server │
+               │ (FastMCP)     │      │ (FastMCP)     │
+               └────────┬──────┘      └──────┬────────┘
+                        │                    │
+                        └────────┬───────────┘
+                                 ▼
+                  ┌────────────────────────────────┐
+                  │ 💬 MCP Coordinator / Streamlit │
+                  │  User-facing Q&A Interface     │
+                  └────────────────────────────────┘
+
+```
 
 ---
 
@@ -197,3 +199,87 @@ It’s designed for *clarity*, *privacy*, and *modular scalability*.
 | **Visualization / UI** | 💬 Streamlit / MCP Coordinator | Front-end for user Q&A |
 
 ---
+
+## 4️⃣ ⚙️ Installation & Setup
+
+Set up your local **GraphRAG MCP environment** in just a few steps!  
+This stack runs fully offline and integrates seamlessly with **Ollama**, **GraphDB**, and **Chroma**.
+
+---
+
+### 🧾 Prerequisites
+
+| Requirement | Description | Example |
+|:-------------|:-------------|:----------|
+| 🐍 **Python** | Version **3.11+** recommended | `python --version` → `Python 3.11.8` |
+| 🧠 **Ollama** | Local LLM runtime (for inference + embeddings) | `ollama pull llama3.1:latest` |
+| 🧩 **GraphDB Desktop 11+** | Local Knowledge Graph database | runs at `http://localhost:7200` |
+| 💾 **ChromaDB** | Vector store for embeddings | auto-initialized under `.chroma/` |
+| 🧰 **FastMCP** | Multi-Component Platform runtime (2.x) | installed via `pip` |
+
+---
+
+### 🧱 Folder Layout (simplified)
+
+| Folder | Purpose | Example Contents |
+|:--------|:----------|:----------------|
+| `src/` | Core codebase | `pipeline.py`, `mcp/`, `kg/`, `rag/` |
+| `outputs/run_simple/` | Generated outputs | labeled chunks, reports, embeddings |
+| `.chroma/` | Chroma persistent vector store | `chroma.sqlite3`, `index/` |
+| `.env` | Environment configuration | Ollama, GraphDB, Chroma settings |
+| `tests/` | Offline unit tests | `test_rag_qa.py`, `test_kg_server.py` |
+
+---
+
+### 🧰 Step-by-Step Setup
+
+#### 🪄 1️⃣ Clone & Create Virtual Environment
+\`\`\`bash
+git clone <your_repo_url>
+cd GraphRAG_MCP
+python -m venv .venv
+\`\`\`
+
+#### ⚡ 2️⃣ Activate Environment
+| OS | Command |
+|:---|:---------|
+| 🪟 **Windows (PowerShell)** | `.venv\Scripts\activate` |
+| 🐧 **Linux / macOS** | `source .venv/bin/activate` |
+
+#### 📦 3️⃣ Install Dependencies
+\`\`\`bash
+pip install -r requirements.txt
+\`\`\`
+
+#### ⚙️ 4️⃣ Verify Installation
+\`\`\`bash
+python -m src.mcp.rag_server --list-tools
+python -m src.mcp.kg_server --list-tools
+\`\`\`
+
+✅ You should see tools like **`rag.qa`**, **`rag.search`**, and **`kg.health`**.
+
+---
+
+### 🧠 Optional: Preload Ollama Models
+
+| Model | Purpose | Pull Command |
+|:-------|:----------|:--------------|
+| 🦙 **llama3.1:latest** | Default reasoning + summarization model | `ollama pull llama3.1:latest` |
+| 🧩 **nomic-embed-text** | Embedding model for RAG vectorization | `ollama pull nomic-embed-text` |
+| 🤖 **qwen2.5:14b-instruct** | Larger model for complex QA tasks | `ollama pull qwen2.5:14b-instruct` |
+
+---
+
+### 🔍 Quick Sanity Check
+
+Run a quick health diagnostic to ensure everything is configured correctly:
+
+\`\`\`bash
+pytest -q
+python -m src.mcp.rag_server --run-tool rag.health
+python -m src.mcp.kg_server --run-tool kg.health
+\`\`\`
+
+If both return ✅ **OK**, you’re ready to run the pipeline and start querying your **Knowledge Graph + RAG** system!
+
