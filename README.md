@@ -102,47 +102,43 @@ It’s designed for *clarity*, *privacy*, and *modular scalability*.
 
 ---
 
-## 🔄 Data Flow Diagram
+### 🔹 Data Flow Diagram
 
-The diagram below shows how documents flow through the **GraphRAG MCP** system —  
-from raw PDFs to Knowledge Graph entities, embeddings, and final question answering.
+```text
+            ┌────────────────────────────────────────┐
+            │              Whitepapers               │
+            │ (PDFs, research papers, documentation) │
+            └───────────────────┬────────────────────┘
+                                │
+                                ▼
+            ┌─────────────────────────────────────────────┐
+            │      📄 Ingestion & Labeling                │
+            │  pdf_reader → semantic_splitter →           │
+            │  llm_chunk_tagger → postprocess             │
+            └───────────────────┬─────────────────────────┘
+                                 │
+                        ┌────────┴────────┐
+                        │                 │
+                        ▼                 ▼
+            ┌────────────────┐    ┌──────────────────────┐
+            │ 🧠 GraphDB KG  │    │ 💾 Chroma RAG      │
+            │ Entities & IRIs │   │ Chunks + Embeddings │
+            └────────┬────────┘   └────────┬────────────┘
+                     │                     │
+                     ▼                     ▼
+               ┌───────────────┐      ┌───────────────┐
+               │ ⚙️ kg_server  │     │ ⚙️ rag_server │
+               │ (FastMCP)     │      │ (FastMCP)     │
+               └────────┬──────┘      └──────┬────────┘
+                        │                    │
+                        └────────┬───────────┘
+                                 ▼
+                  ┌────────────────────────────────┐
+                  │ 💬 MCP Coordinator / Streamlit │
+                  │  User-facing Q&A Interface     │
+                  └────────────────────────────────┘
 
----
-
-\`\`\`text
-            ┌────────────────────────────┐
-            │        📄 Whitepapers       │
-            │ (PDFs, research papers...) │
-            └────────────┬───────────────┘
-                         │
-                         ▼
-     ┌──────────────────────────────────┐
-     │     🧩 Ingestion & Labeling      │
-     │ pdf_reader → semantic_splitter   │
-     │ → llm_chunk_tagger → postprocess │
-     └────────────┬─────────────────────┘
-                  │
-          ┌───────┴────────────┐
-          │                    │
-          ▼                    ▼
- ┌────────────────┐     ┌────────────────────┐
- │ 🧠 GraphDB KG   │     │ 💾 Chroma RAG      │
- │ Entities + IRIs │     │ Embeddings + Texts │
- └──────┬──────────┘     └──────────┬─────────┘
-        │                           │
-        ▼                           ▼
-   ┌───────────────┐           ┌───────────────┐
-   │ ⚙️ kg_server   │           │ ⚙️ rag_server  │
-   │  (FastMCP)    │           │  (FastMCP)    │
-   └──────┬────────┘           └──────┬────────┘
-          │                           │
-          └──────────┬────────────────┘
-                     ▼
-         ┌──────────────────────────────┐
-         │ 💬 MCP Coordinator / UI       │
-         │ (Streamlit / Chat Interface)  │
-         └──────────────────────────────┘
-\`\`\`
+```
 
 ---
 
@@ -289,104 +285,94 @@ If both return ✅ **OK**, you’re ready to run the pipeline and start querying
 
 ---
 
-## 5️⃣ How to Use & Test
+## 5️⃣ 🧪 How to Use & Test
 
-This section shows how to ingest whitepapers, start the MCP servers, and run Q&A (with offline-friendly tests).
-
----
-
-### 📁 1) Prepare Inputs
-Place your PDFs in a folder, e.g. `./whitepapers/`.
-
----
-
-### 🧰 2) Run the Pipeline (Build KG + RAG Index)
-\`\`\`bash
-# Process one or many PDFs (glob patterns allowed)
-python -m src.pipeline --input "./whitepapers/*.pdf"
+### 📥 Ingest Whitepapers & Build the Index
+\`\`\`powershell
+# Place your PDFs under .\whitepapers\ then run:
+python -m src.pipeline --input ".\whitepapers\*.pdf"
 \`\`\`
-
-**Outputs:**
-- Labeled JSON under `outputs/run_simple/labels/`
-- Chroma index under `.chroma/`
-- Entities pushed to GraphDB repository (e.g., `mcp_kg`)
+✅ Outputs:
+- Labeled JSONL → `outputs\run_simple\labels\`
+- Chroma index  → `.chroma\`
+- (If enabled) Entities pushed to GraphDB repository `mcp_kg`
 
 ---
 
-### ⚙️ 3) Start the MCP Servers
-\`\`\`bash
-# RAG server (semantic & entity-filtered retrieval, QA)
+### 🖧 Start the MCP Servers (RAG + KG)
+\`\`\`powershell
+# Terminal A
 python -m src.mcp.rag_server
 
-# KG server (SPARQL + label validation/push)
+# Terminal B
 python -m src.mcp.kg_server
 \`\`\`
-
-**Tool discovery (optional):**
-\`\`\`bash
+💡 Tip: In another PowerShell window, confirm the tools are available:
+\`\`\`powershell
 python -m src.mcp.rag_server --list-tools
 python -m src.mcp.kg_server --list-tools
 \`\`\`
 
 ---
 
-### 🔎 4) Quick Retrieval Check
-\`\`\`bash
-# Health checks
+### 🔎 Quick Retrieval Check (RAG)
+\`\`\`powershell
+# Example: semantic search for "peer-to-peer electronic cash"
+python -m src.mcp.rag_server --run-tool rag.search --input '{ "text": "peer-to-peer electronic cash", "k": 3 }'
+\`\`\`
+You should see matching chunks with `doc_id`, `chunk_id`, and distances.
+
+---
+
+### ❓ Ask Questions with Citations (rag.qa)
+\`\`\`powershell
+# Fully offline (deterministic mock answer)
+python -m src.mcp.rag_server --run-tool rag.qa --input '{ "question": "What problem does Bitcoin aim to solve?", "k": 5, "kg_enrich": true, "use_mock_llm": true }'
+\`\`\`
+➡️ Returns:
+- `answer`: concise response (mock or LLM)
+- `citations`: `[ {doc_id, chunk_id, entity_ids, text} ]`
+- `took_ms`, `model_used`
+
+Switch to real LLM synthesis by omitting `use_mock_llm` (requires Ollama running).
+
+---
+
+### 🧠 Optional: Entity-Filtered QA
+\`\`\`powershell
+python -m src.mcp.rag_server --run-tool rag.qa --input '{ "question": "How does proof-of-work secure the network?", "entity_ids": ["https://kg.mcp.ai/id/token/bitcoin"], "k": 5, "kg_enrich": true, "use_mock_llm": true }'
+\`\`\`
+This restricts retrieval to chunks tagged with the specified KG entity(ies).
+
+---
+
+### 🧪 Run the Test Suite
+\`\`\`powershell
+pytest -q
+\`\`\`
+Key tests (all offline):
+- `tests\test_rag_qa.py`: verifies retrieval normalization and mock LLM mode  
+- `tests\test_kg_server.py`: checks KG connectivity (skips if GraphDB not running)
+
+---
+
+### 🩺 Health Checks
+\`\`\`powershell
 python -m src.mcp.rag_server --run-tool rag.health
 python -m src.mcp.kg_server --run-tool kg.health
 \`\`\`
+Expect collection info, document counts, and OK status.
 
 ---
 
-### 💬 5) Ask a Question (rag.qa)
-\`\`\`bash
-# Example: general question
-python -m src.mcp.rag_server --run-tool rag.qa -- \
-  '{"question":"What problem does Bitcoin aim to solve?","k":4,"kg_enrich":true,"use_mock_llm":false}'
-
-# Example: entity-filtered question (focus the retrieval)
-python -m src.mcp.rag_server --run-tool rag.qa -- \
-  '{"question":"How is the network secured?","entity_ids":["https://kg.mcp.ai/id/token/bitcoin"],"k":4,"kg_enrich":true}'
+### 🧩 MCP Coordinator / UI Hookup (Optional)
+Ensure your `mcp.json` references the running servers:
+\`\`\`json
+{
+  "mcpServers": {
+    "rag": { "command": "python", "args": ["-m", "src.mcp.rag_server"] },
+    "kg":  { "command": "python", "args": ["-m", "src.mcp.kg_server"] }
+  }
+}
 \`\`\`
-
-**Tip:** Set `use_mock_llm=true` to produce a deterministic, offline answer (no Ollama call).
-
----
-
-### 🧪 6) Run Tests (Offline-Friendly)
-\`\`\`bash
-# Unit tests (use mock LLM and fake RAG/KG)
-pytest -q
-\`\`\`
-
-**Direct test:**  
-\`\`\`bash
-pytest -q tests/test_rag_qa.py -v
-\`\`\`
-
----
-
-### 🧠 7) Mock vs. Real LLM
-- **Mock mode (offline/CI):** Set `use_mock_llm=true` in the `rag.qa` payload, or export `QA_LLM_MODE=mock` in `.env`.
-- **Real LLM (local):** Ensure Ollama is running; models like \`llama3.1:latest\` and \`nomic-embed-text\` are pulled.
-
----
-
-### 🧩 8) Optional KG Enrichment
-Add `"kg_enrich": true` to \`rag.qa\` to fetch labels/aliases for entity IRIs found in top results.  
-Requires your GraphDB repository to be accessible via \`GRAPHDB_URL\` / \`GRAPHDB_REPOSITORY\`.
-
----
-
-### 🧹 9) Maintenance
-\`\`\`bash
-# Rebuild the vector index from pipeline outputs
-python -m src.mcp.rag_server --run-tool rag.reindex -- \
-  '{"outputs_dir":"outputs/run_simple","collection":"whitepapers"}'
-
-# Delete by metadata filter or IDs
-python -m src.mcp.rag_server --run-tool rag.delete -- \
-  '{"where":{"doc_id":{"$eq":"bitcoin-whitepaper"}}}'
-\`\`\`
-
+Then connect via your MCP Coordinator or Streamlit app to interactively call `rag.qa` and `kg.*` tools.
