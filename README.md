@@ -235,9 +235,7 @@ This stack runs fully offline and integrates seamlessly with **Ollama**, **Graph
 
 #### 🪄 1️⃣ Clone & Create Virtual Environment
 ```bash
-git clone <your_repo_url>
-cd GraphRAG_MCP
-python -m venv .venv
+git clone <[text](https://github.com/Swissbit92/GraphDB_Desktop.git)>
 ```
 
 #### ⚡ 2️⃣ Activate Environment
@@ -247,15 +245,15 @@ python -m venv .venv
 | 🐧 **Linux / macOS** | `source .venv/bin/activate` |
 
 #### 📦 3️⃣ Install Dependencies
-\`\`\`bash
+```bash
 pip install -r requirements.txt
-\`\`\`
+```
 
 #### ⚙️ 4️⃣ Verify Installation
-\`\`\`bash
+```bash
 python -m src.mcp.rag_server --list-tools
 python -m src.mcp.kg_server --list-tools
-\`\`\`
+```
 
 ✅ You should see tools like **`rag.qa`**, **`rag.search`**, and **`kg.health`**.
 
@@ -274,12 +272,11 @@ python -m src.mcp.kg_server --list-tools
 ### 🔍 Quick Sanity Check
 
 Run a quick health diagnostic to ensure everything is configured correctly:
-
-\`\`\`bash
+```bash
 pytest -q
 python -m src.mcp.rag_server --run-tool rag.health
 python -m src.mcp.kg_server --run-tool kg.health
-\`\`\`
+```
 
 If both return ✅ **OK**, you’re ready to run the pipeline and start querying your **Knowledge Graph + RAG** system!
 
@@ -288,10 +285,10 @@ If both return ✅ **OK**, you’re ready to run the pipeline and start querying
 ## 5️⃣ 🧪 How to Use & Test
 
 ### 📥 Ingest Whitepapers & Build the Index
-\`\`\`powershell
+```bash
 # Place your PDFs under .\whitepapers\ then run:
 python -m src.pipeline --input ".\whitepapers\*.pdf"
-\`\`\`
+```
 ✅ Outputs:
 - Labeled JSONL → `outputs\run_simple\labels\`
 - Chroma index  → `.chroma\`
@@ -300,35 +297,37 @@ python -m src.pipeline --input ".\whitepapers\*.pdf"
 ---
 
 ### 🖧 Start the MCP Servers (RAG + KG)
-\`\`\`powershell
+```bash
 # Terminal A
 python -m src.mcp.rag_server
+```
 
+```bash
 # Terminal B
 python -m src.mcp.kg_server
-\`\`\`
+```
 💡 Tip: In another PowerShell window, confirm the tools are available:
-\`\`\`powershell
+```bash
 python -m src.mcp.rag_server --list-tools
 python -m src.mcp.kg_server --list-tools
-\`\`\`
+```
 
 ---
 
 ### 🔎 Quick Retrieval Check (RAG)
-\`\`\`powershell
+```bash
 # Example: semantic search for "peer-to-peer electronic cash"
 python -m src.mcp.rag_server --run-tool rag.search --input '{ "text": "peer-to-peer electronic cash", "k": 3 }'
-\`\`\`
+```
 You should see matching chunks with `doc_id`, `chunk_id`, and distances.
 
 ---
 
 ### ❓ Ask Questions with Citations (rag.qa)
-\`\`\`powershell
+```bash
 # Fully offline (deterministic mock answer)
 python -m src.mcp.rag_server --run-tool rag.qa --input '{ "question": "What problem does Bitcoin aim to solve?", "k": 5, "kg_enrich": true, "use_mock_llm": true }'
-\`\`\`
+```
 ➡️ Returns:
 - `answer`: concise response (mock or LLM)
 - `citations`: `[ {doc_id, chunk_id, entity_ids, text} ]`
@@ -339,17 +338,17 @@ Switch to real LLM synthesis by omitting `use_mock_llm` (requires Ollama running
 ---
 
 ### 🧠 Optional: Entity-Filtered QA
-\`\`\`powershell
+```bash
 python -m src.mcp.rag_server --run-tool rag.qa --input '{ "question": "How does proof-of-work secure the network?", "entity_ids": ["https://kg.mcp.ai/id/token/bitcoin"], "k": 5, "kg_enrich": true, "use_mock_llm": true }'
-\`\`\`
+```
 This restricts retrieval to chunks tagged with the specified KG entity(ies).
 
 ---
 
 ### 🧪 Run the Test Suite
-\`\`\`powershell
+```bash
 pytest -q
-\`\`\`
+```
 Key tests (all offline):
 - `tests\test_rag_qa.py`: verifies retrieval normalization and mock LLM mode  
 - `tests\test_kg_server.py`: checks KG connectivity (skips if GraphDB not running)
@@ -357,22 +356,22 @@ Key tests (all offline):
 ---
 
 ### 🩺 Health Checks
-\`\`\`powershell
+```bash
 python -m src.mcp.rag_server --run-tool rag.health
 python -m src.mcp.kg_server --run-tool kg.health
-\`\`\`
+```
 Expect collection info, document counts, and OK status.
 
 ---
 
 ### 🧩 MCP Coordinator / UI Hookup (Optional)
 Ensure your `mcp.json` references the running servers:
-\`\`\`json
+```json
 {
   "mcpServers": {
     "rag": { "command": "python", "args": ["-m", "src.mcp.rag_server"] },
     "kg":  { "command": "python", "args": ["-m", "src.mcp.kg_server"] }
   }
 }
-\`\`\`
+```
 Then connect via your MCP Coordinator or Streamlit app to interactively call `rag.qa` and `kg.*` tools.
