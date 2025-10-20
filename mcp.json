@@ -24,19 +24,18 @@
     "kg": {
       "type": "stdio",
       "command": "python",
-      "args": ["-m", "src.mcp.server"],
+      "args": ["-m", "src.mcp.kg_server"],
       "env": {
         "PYTHONUNBUFFERED": "1",
         "GRAPHDB_URL": "http://localhost:7200",
         "GRAPHDB_REPOSITORY": "mcp_kg",
         "GRAPHDB_USERNAME": "admin",
         "GRAPHDB_PUSH": "true",
-        "KG_STORE_BACKEND": "memory",
         "KG_ENTITY_ONLY": "true",
         "KG_ONTOLOGY_PATH": "src/kg/ontology/mcp-core.ttl",
         "KG_SHAPES_PATH": "src/kg/ontology/mcp-crypto.ttl",
-        "OLLAMA_BASE": "http://127.0.0.1:11434",
-        "OLLAMA_MODEL": "llama3.1:latest"
+        "KG_LABELS_DIR": "outputs/run_simple/labels",
+        "KG_DOCS_DIR": "outputs/run_simple/docs"
       }
     },
 
