@@ -1,0 +1,20 @@
+# .dockerignore
+# Ignore files and directories that should not be included in the Docker build context
+# This helps to reduce the build context size and improve build performance.
+# ============================================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+*.db
+.vscode/
+.venv/
+dist/
+build/
+*.egg-info/
+.chroma/
+outputs/
+.env
+data/

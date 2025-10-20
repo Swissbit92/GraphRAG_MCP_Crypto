@@ -1,0 +1,47 @@
+# Dockerfile.rag
+# Dockerfile for GraphRAG MCP Server
+# ============================================================
+# Uses Python 3.11-slim as base image
+# Installs dependencies from requirements.txt
+# Copies application code and sets up non-root user
+# Configures default environment variables and data volumes
+# Entrypoint runs the rag_server module
+# ============================================================
+# syntax=docker/dockerfile:1.7
+FROM python:3.11-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+# System deps (add poppler/graphviz if your pipeline needs it)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates tini \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install deps first to leverage Docker cache
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy only the code we need
+COPY src ./src
+COPY catalog ./catalog
+
+# Non-root user (optional but recommended)
+RUN useradd -m appuser
+USER appuser
+
+# Default env — override at runtime
+ENV CHROMA_DIR=/data/chroma \
+    CHROMA_COLLECTION=whitepapers \
+    RAG_OUTPUTS_DIR=/data/outputs \
+    OLLAMA_BASE=http://host.docker.internal:11434
+
+# Data volumes mounted from host
+VOLUME ["/data/chroma", "/data/outputs"]
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "-m", "src.mcp.rag_server"]

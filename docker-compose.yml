@@ -1,0 +1,79 @@
+# docker-compose.yml
+# Docker Compose configuration for GraphRAG MCP
+# ============================================================
+# Defines services for Ollama, GraphDB, RAG server, and KG server
+# Sets up necessary environment variables, volumes, and dependencies
+# ============================================================
+version: "3.11"
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes:
+      - ollama:/root/.ollama
+
+  graphdb:
+    image: ontotext/graphdb:10.6.4
+    ports: ["7200:7200"]
+    volumes:
+      - graphdb:/opt/graphdb/home
+
+  rag:
+    build:
+      context: .
+      dockerfile: Dockerfile.rag
+    environment:
+      PYTHONUNBUFFERED: "1"
+      CHROMA_DIR: /data/chroma
+      CHROMA_COLLECTION: whitepapers
+      RAG_OUTPUTS_DIR: /data/outputs
+      RAG_EXPAND_PER_ENTITY: "true"
+      OLLAMA_BASE: http://ollama:11434
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      # Optional QA settings
+      OLLAMA_MODEL: llama3.1:latest
+      QA_LLM_MODEL: llama3.1:latest
+      QA_KG_ENRICH: "true"
+      # If you want KG enrichment from rag:
+      GRAPHDB_URL: http://graphdb:7200
+      GRAPHDB_REPOSITORY: mcp_kg
+    volumes:
+      - ./outputs:/data/outputs
+      - ./.chroma:/data/chroma
+    depends_on:
+      - ollama
+      - graphdb
+    healthcheck:
+      test: ["CMD", "python", "-m", "src.mcp.rag_server", "--run-tool", "rag.health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  kg:
+    build:
+      context: .
+      dockerfile: Dockerfile.kg
+    environment:
+      PYTHONUNBUFFERED: "1"
+      GRAPHDB_URL: http://graphdb:7200
+      GRAPHDB_REPOSITORY: mcp_kg
+      GRAPHDB_USERNAME: admin
+      # GRAPHDB_PASSWORD: set via .env or secrets manager
+      KG_ONTOLOGY_PATH: src/kg/ontology/mcp-core.ttl
+      KG_SHAPES_PATH: src/kg/ontology/mcp-crypto.ttl
+      KG_LABELS_DIR: /data/labels
+      KG_DOCS_DIR: /data/docs
+    volumes:
+      - ./outputs/run_simple/labels:/data/labels
+      - ./outputs/run_simple/docs:/data/docs
+    depends_on:
+      - graphdb
+    healthcheck:
+      test: ["CMD", "python", "-m", "src.mcp.kg_server", "--run-tool", "kg.health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  ollama:
+  graphdb:

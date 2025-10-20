@@ -1,0 +1,42 @@
+# Dockerfile.kg
+# Dockerfile for GraphKG MCP Server
+# ============================================================
+# Uses Python 3.11-slim as base image
+# Installs dependencies from requirements.txt
+# Copies application code and sets up non-root user
+# Configures default environment variables and data volumes
+# Entrypoint runs the kg_server module
+# ============================================================
+# syntax=docker/dockerfile:1.7
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates tini \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src ./src
+COPY catalog ./catalog
+
+RUN useradd -m appuser
+USER appuser
+
+# Default env — override at runtime
+ENV GRAPHDB_URL=http://host.docker.internal:7200 \
+    GRAPHDB_REPOSITORY=mcp_kg \
+    KG_LABELS_DIR=/data/labels \
+    KG_DOCS_DIR=/data/docs
+
+VOLUME ["/data/labels", "/data/docs"]
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "-m", "src.mcp.kg_server"]
