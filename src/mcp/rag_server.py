@@ -231,25 +231,40 @@ def rag_health_impl() -> HealthOutput:
     )
 
 # -----------------------------------------------------------------------------
-# FastMCP tool wrappers (call implementations)
+# FastMCP tool wrappers (now with descriptions)
 # -----------------------------------------------------------------------------
-@mcp.tool(name="rag.search")
+@mcp.tool(
+    name="rag.search",
+    description="Semantic / filtered retrieval from Chroma (optionally filter by entity_ids and metadata).",
+)
 def tool_rag_search(inp: SearchInput) -> Dict[str, Any]:
     return rag_search_impl(inp)
 
-@mcp.tool(name="rag.reindex")
+@mcp.tool(
+    name="rag.reindex",
+    description="Rebuild the RAG collection from pipeline outputs (labels + chunks) in a given outputs_dir.",
+)
 def tool_rag_reindex(inp: ReindexInput) -> Dict[str, Any]:
     return rag_reindex_impl(inp)
 
-@mcp.tool(name="rag.embed_and_index")
+@mcp.tool(
+    name="rag.embed_and_index",
+    description="Add new records: either direct {text, metadata, id?} or by joining labels_dir + chunks_dir.",
+)
 def tool_rag_embed_and_index(inp: EmbedAndIndexInput) -> Dict[str, Any]:
     return rag_embed_and_index_impl(inp)
 
-@mcp.tool(name="rag.delete")
+@mcp.tool(
+    name="rag.delete",
+    description="Delete items by ids or metadata filter (where). Normalizes ids to the 'chunk:' prefix.",
+)
 def tool_rag_delete(inp: DeleteInput) -> Dict[str, Any]:
     return rag_delete_impl(inp)
 
-@mcp.tool(name="rag.health")
+@mcp.tool(
+    name="rag.health",
+    description="Basic store diagnostics: collection name, persist dir, count, embedding status, expand-per-entity.",
+)
 def tool_rag_health() -> HealthOutput:
     return rag_health_impl()
 

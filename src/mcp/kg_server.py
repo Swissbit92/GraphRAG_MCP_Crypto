@@ -1,4 +1,4 @@
-# src/mcp/server.py
+# src/mcp/kg_server.py
 from __future__ import annotations
 
 import json
@@ -55,6 +55,9 @@ def _repo_query_url() -> str:
 def _repo_statements_url() -> str:
     return f"{GRAPHDB_URL}/repositories/{GRAPHDB_REPOSITORY}/statements"
 
+def _repo_size_url() -> str:
+    return f"{GRAPHDB_URL}/repositories/{GRAPHDB_REPOSITORY}/size"
+
 # -----------------------------------------------------------------------------
 # Pydantic models
 # -----------------------------------------------------------------------------
@@ -109,6 +112,13 @@ class GetChunkInput(BaseModel):
 class GetChunkOutput(BaseModel):
     ok: bool
     record: Optional[Dict[str, Any]] = None
+
+class KgHealthOutput(BaseModel):
+    ok: bool
+    base_url: str
+    repository: str
+    triple_count: int
+    auth_configured: bool
 
 # -----------------------------------------------------------------------------
 # Server
@@ -271,35 +281,106 @@ def get_chunk_impl(inp: GetChunkInput) -> GetChunkOutput:
     log.info("get_chunk doc_id=%s not found", inp.doc_id)
     return GetChunkOutput(ok=False, record=None)
 
+
+def kg_health_impl() -> KgHealthOutput:
+    """
+    Probe GraphDB repository and return a small health summary.
+    - Tries GET /repositories/{repo}/size (preferred); falls back to a COUNT(*) SPARQL if needed.
+    """
+    triple_count = -1
+
+    # Preferred: native size endpoint
+    try:
+        resp = requests.get(_repo_size_url(), auth=_auth(), timeout=20)
+        if resp.status_code == 200:
+            try:
+                triple_count = int(resp.text.strip())
+            except Exception:
+                triple_count = -1
+    except Exception:
+        triple_count = -1
+
+    # Fallback via SPARQL COUNT
+    if triple_count < 0:
+        try:
+            q = "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }"
+            sresp = requests.get(
+                _repo_query_url(),
+                params={"query": q},
+                headers={"Accept": "application/sparql-results+json"},
+                auth=_auth(),
+                timeout=30,
+            )
+            if sresp.status_code == 200:
+                data = sresp.json()
+                val = data["results"]["bindings"][0]["n"]["value"]
+                triple_count = int(val)
+        except Exception:
+            triple_count = -1
+
+    ok = triple_count >= 0
+    return KgHealthOutput(
+        ok=ok,
+        base_url=GRAPHDB_URL,
+        repository=GRAPHDB_REPOSITORY,
+        triple_count=triple_count,
+        auth_configured=bool(GRAPHDB_USERNAME and GRAPHDB_PASSWORD),
+    )
+
 # -----------------------------------------------------------------------------
-# FastMCP wrappers
+# FastMCP wrappers (with descriptions)
 # -----------------------------------------------------------------------------
-@mcp.tool(name="validate_labels")
+@mcp.tool(
+    name="validate_labels",
+    description="Validate Turtle files in a directory (syntax-level). If rdflib is installed, parses each file.",
+)
 def tool_validate_labels(inp: ValidateLabelsInput) -> ValidateLabelsOutput:
     return validate_labels_impl(inp)
 
-@mcp.tool(name="push_labels")
+@mcp.tool(
+    name="push_labels",
+    description="POST .ttl files into GraphDB (optionally into a named graph via 'context').",
+)
 def tool_push_labels(inp: PushLabelsInput) -> PushLabelsOutput:
     return push_labels_impl(inp)
 
-@mcp.tool(name="sparql_query")
+@mcp.tool(
+    name="sparql_query",
+    description="Run a SPARQL query against GraphDB; returns JSON if available, otherwise raw text.",
+)
 def tool_sparql_query(inp: SparqlQueryInput) -> SparqlQueryOutput:
     return sparql_query_impl(inp)
 
-@mcp.tool(name="sparql_update")
+@mcp.tool(
+    name="sparql_update",
+    description="Run a SPARQL UPDATE against GraphDB (e.g., INSERT DATA, DELETE WHERE, CLEAR GRAPH).",
+)
 def tool_sparql_update(inp: SparqlUpdateInput) -> SparqlUpdateOutput:
     return sparql_update_impl(inp)
 
-@mcp.tool(name="list_documents")
+@mcp.tool(
+    name="list_documents",
+    description="Enumerate docs from pipeline JSONL outputs, aggregating doc_id → chunk count.",
+)
 def tool_list_documents(inp: ListDocumentsInput) -> ListDocumentsOutput:
     return list_documents_impl(inp)
 
-@mcp.tool(name="get_chunk")
+@mcp.tool(
+    name="get_chunk",
+    description="Fetch one chunk record by doc_id (and optional chunk_id) from pipeline JSONL outputs.",
+)
 def tool_get_chunk(inp: GetChunkInput) -> GetChunkOutput:
     return get_chunk_impl(inp)
 
+@mcp.tool(
+    name="kg.health",
+    description="Basic GraphDB diagnostics for the configured repository (triple count, auth flag).",
+)
+def tool_kg_health() -> KgHealthOutput:
+    return kg_health_impl()
+
 # -----------------------------------------------------------------------------
-# Test-friendly aliases (so tests can call the old names directly)
+# Test-friendly aliases (so tests can call directly)
 # -----------------------------------------------------------------------------
 validate_labels = validate_labels_impl
 push_labels = push_labels_impl
@@ -307,6 +388,7 @@ sparql_query = sparql_query_impl
 sparql_update = sparql_update_impl
 list_documents = list_documents_impl
 get_chunk = get_chunk_impl
+kg_health = kg_health_impl
 
 # -----------------------------------------------------------------------------
 # Main
