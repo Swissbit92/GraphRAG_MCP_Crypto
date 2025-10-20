@@ -26,17 +26,6 @@
 
 ---
 
-### 🧱 Core Building Blocks
-
-| Layer | What it does | Tech |
-|---|---|---|
-| **Knowledge Graph (KG)** | Stores canonical **entities** (Token/Protocol/Component/Org) for clean, cross-doc grounding | **GraphDB (Ontotext)**, SHACL-friendly ontology (`mcp-core.ttl`, `mcp-crypto.ttl`) |
-| **Vector RAG** | Persists whitepaper **chunks + embeddings** and supports **entity-filtered** semantic search | **ChromaDB** + **Ollama** embeddings (`nomic-embed-text`) |
-| **LLM Labeling & QA** | Labels chunks during ingest; later synthesizes concise answers with citations | **Ollama** models (e.g., `llama3.1`, `qwen2.5`) |
-| **FastMCP Servers** | Expose all capabilities as standard tools for coordination | `rag.*` (search/embed/reindex/qa) & `kg.*` (sparql/validate/push) |
-
----
-
 ### 🔁 End-to-End Flow
 
 **Core data flow:**
@@ -115,38 +104,96 @@ It’s designed for *clarity*, *privacy*, and *modular scalability*.
 
 ### 🔹 Data Flow Diagram
 
-        ┌────────────────────────────┐
-        │        Whitepapers         │
-        │ (PDFs, research papers...) │
-        └────────────┬───────────────┘
-                     │
-                     ▼
- ┌──────────────────────────────────┐
- │     📄 Ingestion & Labeling      │
- │  pdf_reader → semantic_splitter  │
- │  → llm_chunk_tagger → postprocess│
- └────────────┬─────────────────────┘
-              │
-      ┌───────┴────────────┐
-      │                    │
-      ▼                    ▼
-┌────────────────┐ ┌────────────────────┐
-│ 🧠 GraphDB KG │ │ 💾 Chroma RAG │
-│ Entities + IRIs │ │ Embeddings + Texts │
-└──────┬──────────┘ └──────────┬─────────┘
-│ │
-▼ ▼
-┌───────────────┐ ┌───────────────┐
-│ ⚙️ kg_server │ │ ⚙️ rag_server │
-│ (FastMCP) │ │ (FastMCP) │
-└──────┬────────┘ └──────┬────────┘
-│ │
-└──────────┬────────────────┘
-▼
-┌──────────────────────────────┐
-│ 💬 MCP Coordinator / UI │
-│ (Streamlit / Chat Interface) │
-└──────────────────────────────┘
+```text
+            ┌────────────────────────────────────────┐
+            │              Whitepapers               │
+            │ (PDFs, research papers, documentation) │
+            └───────────────────┬────────────────────┘
+                                │
+                                ▼
+     ┌─────────────────────────────────────────────┐
+     │           📄 Ingestion & Labeling           │
+     │  pdf_reader → semantic_splitter →           │
+     │  llm_chunk_tagger → postprocess             │
+     └───────────────────┬─────────────────────────┘
+                         │
+                ┌────────┴────────┐
+                │                 │
+                ▼                 ▼
+     ┌────────────────┐   ┌──────────────────────┐
+     │ 🧠 GraphDB KG   │   │ 💾 Chroma RAG        │
+     │ Entities & IRIs │   │ Chunks + Embeddings  │
+     └────────┬────────┘   └────────┬────────────┘
+              │                     │
+              ▼                     ▼
+        ┌───────────────┐      ┌───────────────┐
+        │ ⚙️ kg_server   │      │ ⚙️ rag_server  │
+        │ (FastMCP)     │      │ (FastMCP)     │
+        └────────┬──────┘      └──────┬────────┘
+                 │                     │
+                 └────────┬────────────┘
+                          ▼
+          ┌────────────────────────────────┐
+          │ 💬 MCP Coordinator / Streamlit │
+          │  User-facing Q&A Interface     │
+          └────────────────────────────────┘
 
 ---
 
+### 🧠 How It Works (Step-by-Step)
+
+| Step | Description | Input | Output |
+|:----:|:-------------|:------|:--------|
+| **1️⃣** | **PDF Parsing** | Whitepaper PDF | Raw text pages |
+| **2️⃣** | **Semantic Splitting** | Raw text | Meaningful chunks (by section/topic) |
+| **3️⃣** | **LLM Labeling** | Chunk text | Entities, relations, and section labels |
+| **4️⃣** | **Postprocessing** | Labeled chunks | Cleaned JSONL with canonical entity IRIs |
+| **5️⃣** | **Indexing** | JSONL labels | Chroma embeddings + KG triples |
+| **6️⃣** | **Retrieval (rag.search)** | Query text / entities | Relevant chunks |
+| **7️⃣** | **Enrichment (optional)** | Retrieved entities | KG aliases, definitions |
+| **8️⃣** | **Answer Synthesis (rag.qa)** | Question + context | Concise answer with citations |
+
+---
+
+### 🌐 Data Modalities
+
+| Data Type | Storage | Example |
+|:-----------|:--------|:--------|
+| 🧱 **Entity** | GraphDB | `<https://kg.mcp.ai/id/token/bitcoin>` → `rdf:type crypto:Token` |
+| 📜 **Chunk** | Chroma | “Bitcoin is a peer-to-peer electronic cash system…” |
+| 🧩 **Embedding** | Chroma / Ollama | 768-dim `nomic-embed-text` vector |
+| 🧮 **Provenance** | Metadata | `doc_id`, `chunk_id`, `page`, `entity_ids[]` |
+| 💬 **Answer** | MCP JSON | `{ "answer": "...", "citations": [...] }` |
+
+---
+
+### 🧱 Core MCP Tools
+
+| Server | Tool | Description |
+|:--------|:------|:-------------|
+| 🧩 **RAG** | `rag.search` | Semantic search over chunks |
+| | `rag.embed_and_index` | Add new labeled chunks to index |
+| | `rag.reindex` | Rebuild from outputs directory |
+| | `rag.delete` | Delete by IDs or filters |
+| | `rag.qa` | Question answering with LLM synthesis |
+| | `rag.health` | Diagnostics and store info |
+| 🧠 **KG** | `sparql_query` / `sparql_update` | Execute SPARQL against GraphDB |
+| | `push_labels` / `validate_labels` | Add or validate KG entries |
+| | `list_documents`, `get_chunk` | Retrieve document metadata |
+| | `kg.health` | Check GraphDB repository status |
+
+---
+
+### 🧬 Technology Stack Summary
+
+| Category | Technology | Purpose |
+|:----------|:------------|:---------|
+| **Language** | 🐍 Python 3.11 | Core pipeline and servers |
+| **LLM Backend** | 🧠 Ollama | Local inference for labeling & QA |
+| **Vector Store** | 💾 ChromaDB | Embeddings and chunk retrieval |
+| **Knowledge Graph** | 🧩 GraphDB | RDF-based entity storage |
+| **Interoperability** | ⚙️ FastMCP 2.x | Exposes tools for coordinators |
+| **Testing** | 🧪 Pytest | Offline & integration tests |
+| **Visualization / UI** | 💬 Streamlit / MCP Coordinator | Front-end for user Q&A |
+
+---
