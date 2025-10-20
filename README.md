@@ -1,4 +1,5 @@
 # 🧠 GraphRAG MCP  
+
 > **Entity-centric Retrieval-Augmented Generation for Crypto Whitepapers**  
 > _Local-first • Private • FastMCP-ready_
 
@@ -19,6 +20,7 @@
 **GraphRAG MCP** is a modular, **local-first** system that turns crypto whitepapers into an **entity-centric Knowledge Graph** and a **vector-searchable corpus**, then answers questions with **RAG + optional KG enrichment + LLM synthesis** — all via standardized **FastMCP** tools.
 
 ### Why this project?
+
 - 🛡️ **Privacy by default:** runs entirely on your machine (Ollama, Chroma, GraphDB).
 - ⚡ **Fast & focused:** entity-filtered retrieval narrows context to the right tokens/protocols.
 - 🧩 **Composable:** exposes `rag.*` and `kg.*` tools so an **MCP Coordinator** or **Streamlit** app can orchestrate multi-tool workflows.
@@ -26,14 +28,8 @@
 
 ---
 
-### 🔁 End-to-End Flow
+### 🔁 Typical usage
 
-**Core data flow:**
-PDF → semantic_splitter → llm_chunk_tagger → postprocess
-→ Chroma (vector store) + GraphDB (entity KG)
-→ FastMCP: rag_server + kg_server
-
-**Typical usage:**
 1. Ingest and label whitepapers → build embeddings and insert entities.  
 2. Ask questions via `rag.qa` (semantic + entity-filtered retrieval), optionally enrich with KG labels/aliases.  
 3. Get concise LLM answers with inline citations to source chunks.
@@ -43,35 +39,41 @@ PDF → semantic_splitter → llm_chunk_tagger → postprocess
 ## 2️⃣ Features
 
 ### 🧩 Knowledge Graph (KG)
+
 - **Entity-only architecture** using RDF/OWL ontologies (`mcp-core.ttl`, `mcp-crypto.ttl`).
 - Built on **Ontotext GraphDB 11+** with SHACL validation and SPARQL/GraphQL endpoints.
 - Stores canonical entities such as tokens, protocols, components, and organizations.
 - Enables KG enrichment for RAG answers via aliases, labels, and relationships.
 
 ### 🔍 Vector Retrieval (RAG)
+
 - **ChromaDB** acts as the persistent vector store for chunk embeddings.
 - Embeddings generated using **Ollama’s** `nomic-embed-text` model.
 - Supports **semantic** and **entity-filtered** retrieval modes for accurate context fetching.
 - Each chunk contains structured metadata: `doc_id`, `chunk_id`, `entity_ids`, `section_type`, and `page`.
 
 ### 🧠 Local LLM Inference
+
 - Uses **Ollama** for fully local inference — no external API keys required.
 - Compatible with models like `llama3.1:latest`, `qwen2.5:14b-instruct`, or `mistral`.
 - Performs labeling, summarization, and final QA synthesis.
 - Includes deterministic **mock mode** for offline testing and CI.
 
 ### ⚙️ FastMCP Servers
+
 - Two modular servers expose tools via **FastMCP 2.x**:
   - `rag` → `rag.search`, `rag.embed_and_index`, `rag.reindex`, `rag.delete`, `rag.health`, `rag.qa`
   - `kg` → `sparql_query`, `sparql_update`, `push_labels`, `validate_labels`, `list_documents`, `kg.health`
 - Both run locally via stdio and are MCP-Coordinator compatible.
 
 ### 🔒 Privacy & Portability
+
 - 100% offline operation — suitable for air-gapped or research environments.
 - Reproducible local stack (GraphDB + Chroma + Ollama + FastMCP).
 - Works seamlessly on Windows 11, macOS, or Linux.
 
 ### 🚀 Integration Ready
+
 - Plug-and-play with **MCP Coordinators** or **Streamlit apps** for end-user Q&A.
 - Can interoperate with other MCPs such as:
   - Brave API MCP (web search)
@@ -186,20 +188,6 @@ It’s designed for *clarity*, *privacy*, and *modular scalability*.
 
 ---
 
-### 🧬 Technology Stack Summary
-
-| Category | Technology | Purpose |
-|:----------|:------------|:---------|
-| **Language** | 🐍 Python 3.11 | Core pipeline and servers |
-| **LLM Backend** | 🧠 Ollama | Local inference for labeling & QA |
-| **Vector Store** | 💾 ChromaDB | Embeddings and chunk retrieval |
-| **Knowledge Graph** | 🧩 GraphDB | RDF-based entity storage |
-| **Interoperability** | ⚙️ FastMCP 2.x | Exposes tools for coordinators |
-| **Testing** | 🧪 Pytest | Offline & integration tests |
-| **Visualization / UI** | 💬 Streamlit / MCP Coordinator | Front-end for user Q&A |
-
----
-
 ## 4️⃣ ⚙️ Installation & Setup
 
 Set up your local **GraphRAG MCP environment** in just a few steps!  
@@ -234,22 +222,26 @@ This stack runs fully offline and integrates seamlessly with **Ollama**, **Graph
 ### 🧰 Step-by-Step Setup
 
 #### 🪄 1️⃣ Clone & Create Virtual Environment
+
 ```bash
 git clone <[text](https://github.com/Swissbit92/GraphDB_Desktop.git)>
 ```
 
 #### ⚡ 2️⃣ Activate Environment
+
 | OS | Command |
 |:---|:---------|
 | 🪟 **Windows (PowerShell)** | `.venv\Scripts\activate` |
 | 🐧 **Linux / macOS** | `source .venv/bin/activate` |
 
 #### 📦 3️⃣ Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 #### ⚙️ 4️⃣ Verify Installation
+
 ```bash
 python -m src.mcp.rag_server --list-tools
 python -m src.mcp.kg_server --list-tools
@@ -272,6 +264,7 @@ python -m src.mcp.kg_server --list-tools
 ### 🔍 Quick Sanity Check
 
 Run a quick health diagnostic to ensure everything is configured correctly:
+
 ```bash
 pytest -q
 python -m src.mcp.rag_server --run-tool rag.health
@@ -285,11 +278,14 @@ If both return ✅ **OK**, you’re ready to run the pipeline and start querying
 ## 5️⃣ 🧪 How to Use & Test
 
 ### 📥 Ingest Whitepapers & Build the Index
+
 ```bash
 # Place your PDFs under .\whitepapers\ then run:
 python -m src.pipeline --input ".\whitepapers\*.pdf"
 ```
+
 ✅ Outputs:
+
 - Labeled JSONL → `outputs\run_simple\labels\`
 - Chroma index  → `.chroma\`
 - (If enabled) Entities pushed to GraphDB repository `mcp_kg`
@@ -297,6 +293,7 @@ python -m src.pipeline --input ".\whitepapers\*.pdf"
 ---
 
 ### 🖧 Start the MCP Servers (RAG + KG)
+
 ```bash
 # Terminal A
 python -m src.mcp.rag_server
@@ -306,7 +303,9 @@ python -m src.mcp.rag_server
 # Terminal B
 python -m src.mcp.kg_server
 ```
+
 💡 Tip: In another PowerShell window, confirm the tools are available:
+
 ```bash
 python -m src.mcp.rag_server --list-tools
 python -m src.mcp.kg_server --list-tools
@@ -315,20 +314,25 @@ python -m src.mcp.kg_server --list-tools
 ---
 
 ### 🔎 Quick Retrieval Check (RAG)
+
 ```bash
 # Example: semantic search for "peer-to-peer electronic cash"
 python -m src.mcp.rag_server --run-tool rag.search --input '{ "text": "peer-to-peer electronic cash", "k": 3 }'
 ```
+
 You should see matching chunks with `doc_id`, `chunk_id`, and distances.
 
 ---
 
 ### ❓ Ask Questions with Citations (rag.qa)
+
 ```bash
 # Fully offline (deterministic mock answer)
 python -m src.mcp.rag_server --run-tool rag.qa --input '{ "question": "What problem does Bitcoin aim to solve?", "k": 5, "kg_enrich": true, "use_mock_llm": true }'
 ```
+
 ➡️ Returns:
+
 - `answer`: concise response (mock or LLM)
 - `citations`: `[ {doc_id, chunk_id, entity_ids, text} ]`
 - `took_ms`, `model_used`
@@ -338,34 +342,43 @@ Switch to real LLM synthesis by omitting `use_mock_llm` (requires Ollama running
 ---
 
 ### 🧠 Optional: Entity-Filtered QA
+
 ```bash
 python -m src.mcp.rag_server --run-tool rag.qa --input '{ "question": "How does proof-of-work secure the network?", "entity_ids": ["https://kg.mcp.ai/id/token/bitcoin"], "k": 5, "kg_enrich": true, "use_mock_llm": true }'
 ```
+
 This restricts retrieval to chunks tagged with the specified KG entity(ies).
 
 ---
 
 ### 🧪 Run the Test Suite
+
 ```bash
 pytest -q
 ```
+
 Key tests (all offline):
+
 - `tests\test_rag_qa.py`: verifies retrieval normalization and mock LLM mode  
 - `tests\test_kg_server.py`: checks KG connectivity (skips if GraphDB not running)
 
 ---
 
 ### 🩺 Health Checks
+
 ```bash
 python -m src.mcp.rag_server --run-tool rag.health
 python -m src.mcp.kg_server --run-tool kg.health
 ```
+
 Expect collection info, document counts, and OK status.
 
 ---
 
 ### 🧩 MCP Coordinator / UI Hookup (Optional)
+
 Ensure your `mcp.json` references the running servers:
+
 ```json
 {
   "mcpServers": {
@@ -374,4 +387,28 @@ Ensure your `mcp.json` references the running servers:
   }
 }
 ```
+
 Then connect via your MCP Coordinator or Streamlit app to interactively call `rag.qa` and `kg.*` tools.
+
+---
+
+## 🙏 Closing Words
+
+GraphRAG MCP is part of the broader **Eeva AI** ecosystem — an open, modular framework for intelligent crypto research and strategy generation.  
+This project wouldn’t exist without the incredible open-source community that continues to push the boundaries of local AI and knowledge engineering.
+
+If you find this useful:
+
+- ⭐ **Star the repository** to support ongoing development  
+- 🧩 **Contribute** improvements or new MCP modules  
+- 🧠 **Explore** integrations with other MCPs (Brave API, MongoDB, Telegram, etc.)  
+- 💬 **Share feedback** — every suggestion helps make the system smarter, faster, and more reliable
+
+---
+
+> *“Knowledge is only powerful when it’s connected.”*  
+> — **Eeva AI Research**
+
+**Thank you for being part of the open-source journey. 🚀**
+
+---
