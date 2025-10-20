@@ -234,11 +234,11 @@ This stack runs fully offline and integrates seamlessly with **Ollama**, **Graph
 ### 🧰 Step-by-Step Setup
 
 #### 🪄 1️⃣ Clone & Create Virtual Environment
-\`\`\`bash
+```bash
 git clone <your_repo_url>
 cd GraphRAG_MCP
 python -m venv .venv
-\`\`\`
+```
 
 #### ⚡ 2️⃣ Activate Environment
 | OS | Command |
