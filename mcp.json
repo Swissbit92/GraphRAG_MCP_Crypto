@@ -69,7 +69,8 @@
       "rag.reindex",
       "rag.embed_and_index",
       "rag.delete",
-      "rag.health"
+      "rag.health",
+      "rag.qa"
     ],
     "indicators": [
       "indicator.list",

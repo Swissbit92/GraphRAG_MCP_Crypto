@@ -1,32 +1,65 @@
-# requirements.txt
+################################################################################
+# MCP GraphRAG Project — Requirements
+# Environment: local-first (Windows / Python 3.11 / RTX 4090)
+# Components:
+#   • PDF → Chunk → LLM Label → Chroma + GraphDB Ingest Pipeline
+#   • RAG MCP server (Chroma + Ollama)
+#   • KG MCP server (GraphDB SPARQL + FastMCP)
+#   • Entity-only KG + LangChain/Ollama embeddings
+################################################################################
 
-# ✅ Basic dependencies
-pymupdf==1.24.9
-tqdm==4.66.4
-python-dotenv==1.0.1
+# ==============================================================================
+# ✅ Core dependencies
+# ==============================================================================
+pymupdf==1.24.9            # PDF reading (fitz)
+tqdm==4.66.4               # progress bars
+python-dotenv==1.0.1       # .env loading
 numpy==1.26.4
 pandas==2.2.2
 scikit-learn==1.5.1
-networkx==3.3
-requests==2.32.3
-pydantic==2.8.2
-pytest==7.4.2
+networkx==3.3              # clustering / graph communities
+requests==2.32.3           # HTTP (GraphDB SPARQL, Ollama)
+pydantic==2.8.2            # schema validation (v2)
+pytest==7.4.2              # testing
 
-# ✅ For YAML parsing
-PyYAML==6.0.2
-rapidfuzz==3.9.6
+# ==============================================================================
+# ✅ Utilities & parsing
+# ==============================================================================
+PyYAML==6.0.2              # YAML configuration
+rapidfuzz==3.9.6           # fuzzy matching / alias normalization
 
-# ✅ LangChain + Ollama
-langchain
-langchain-core
-langchain-ollama
+# ==============================================================================
+# ✅ LangChain + Ollama (for local LLM inference)
+#   → pinned to same minor version family for compatibility
+# ==============================================================================
+langchain==0.3.13
+langchain-core==0.3.13
+langchain-community==0.3.13
+langchain-ollama==0.2.2
 
-# ✅ RDFLib for RDF handling
-langchain-community==0.3.4
-rdflib==7.1.1
+# ==============================================================================
+# ✅ Vector storage (ChromaDB)
+# ==============================================================================
+chromadb==0.4.24           # stable API used by src/rag/chroma_store.py
 
-# ✅ ChromaDB for vector storage
-chromadb>=0.4.24
+# ==============================================================================
+# ✅ Knowledge Graph (RDF/SPARQL)
+# ==============================================================================
+rdflib==7.1.1              # RDF triples / SHACL parsing
 
-# ✅ MCP Client
-fastmcp>=2.2
+# ==============================================================================
+# ✅ MCP Framework (FastMCP 2.x)
+# ==============================================================================
+fastmcp>=2.2               # stdio FastMCP servers (rag + kg)
+
+# ==============================================================================
+# ✅ Optional tools (only if you later add notebook or Streamlit UI)
+# ==============================================================================
+# streamlit>=1.37.0         # (optional) for UI coordinator interface
+# jupyterlab>=4.1.0         # (optional) for notebooks / debugging
+# matplotlib>=3.9.0         # (optional) for quick plots
+################################################################################
+# End of requirements.txt
+################################################################################
+# Note: To install these requirements, run:
+#    pip install -r requirements.txt
