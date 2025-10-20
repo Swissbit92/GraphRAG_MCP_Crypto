@@ -39,3 +39,114 @@
 
 ### 🔁 End-to-End Flow
 
+**Core data flow:**
+PDF → semantic_splitter → llm_chunk_tagger → postprocess
+→ Chroma (vector store) + GraphDB (entity KG)
+→ FastMCP: rag_server + kg_server
+
+**Typical usage:**
+1. Ingest and label whitepapers → build embeddings and insert entities.  
+2. Ask questions via `rag.qa` (semantic + entity-filtered retrieval), optionally enrich with KG labels/aliases.  
+3. Get concise LLM answers with inline citations to source chunks.
+
+---
+
+## 2️⃣ Features
+
+### 🧩 Knowledge Graph (KG)
+- **Entity-only architecture** using RDF/OWL ontologies (`mcp-core.ttl`, `mcp-crypto.ttl`).
+- Built on **Ontotext GraphDB 11+** with SHACL validation and SPARQL/GraphQL endpoints.
+- Stores canonical entities such as tokens, protocols, components, and organizations.
+- Enables KG enrichment for RAG answers via aliases, labels, and relationships.
+
+### 🔍 Vector Retrieval (RAG)
+- **ChromaDB** acts as the persistent vector store for chunk embeddings.
+- Embeddings generated using **Ollama’s** `nomic-embed-text` model.
+- Supports **semantic** and **entity-filtered** retrieval modes for accurate context fetching.
+- Each chunk contains structured metadata: `doc_id`, `chunk_id`, `entity_ids`, `section_type`, and `page`.
+
+### 🧠 Local LLM Inference
+- Uses **Ollama** for fully local inference — no external API keys required.
+- Compatible with models like `llama3.1:latest`, `qwen2.5:14b-instruct`, or `mistral`.
+- Performs labeling, summarization, and final QA synthesis.
+- Includes deterministic **mock mode** for offline testing and CI.
+
+### ⚙️ FastMCP Servers
+- Two modular servers expose tools via **FastMCP 2.x**:
+  - `rag` → `rag.search`, `rag.embed_and_index`, `rag.reindex`, `rag.delete`, `rag.health`, `rag.qa`
+  - `kg` → `sparql_query`, `sparql_update`, `push_labels`, `validate_labels`, `list_documents`, `kg.health`
+- Both run locally via stdio and are MCP-Coordinator compatible.
+
+### 🔒 Privacy & Portability
+- 100% offline operation — suitable for air-gapped or research environments.
+- Reproducible local stack (GraphDB + Chroma + Ollama + FastMCP).
+- Works seamlessly on Windows 11, macOS, or Linux.
+
+### 🚀 Integration Ready
+- Plug-and-play with **MCP Coordinators** or **Streamlit apps** for end-user Q&A.
+- Can interoperate with other MCPs such as:
+  - Brave API MCP (web search)
+  - MongoDB MCP (strategy data)
+  - Telegram MCP (messaging)
+  - Gmail MCP (email retrieval)
+- Returns clean JSON outputs for easy chaining into agentic workflows.
+
+---
+
+## 3️⃣ 🏗️ Architecture
+
+The **GraphRAG MCP** architecture combines **Knowledge Graph reasoning**, **Vector-based retrieval**, and **Local LLM synthesis** — all under the **MCP** interoperability standard.  
+It’s designed for *clarity*, *privacy*, and *modular scalability*.
+
+---
+
+### 🧭 High-Level Overview
+
+| Layer | Technology | Purpose | Example Components |
+|:------|:------------|:---------|:--------------------|
+| 🗂 **Ingestion Layer** | Python + LangChain | Reads PDFs, splits into semantic chunks, labels with LLMs | `pdf_reader.py`, `semantic_splitter.py`, `llm_chunk_tagger.py` |
+| 🧩 **Knowledge Graph Layer (KG)** | GraphDB (Ontotext) + RDFLib | Stores canonical entities (tokens, protocols, organizations) | `graphdb_sink.py`, `namespaces.py`, SHACL shapes |
+| 💾 **Vector Retrieval Layer (RAG)** | ChromaDB + Ollama embeddings | Stores text chunks + metadata + embeddings for semantic retrieval | `chroma_store.py`, `.chroma/` |
+| ⚙️ **MCP Layer** | FastMCP 2.x | Exposes standardized MCP tools (`rag.*`, `kg.*`) | `rag_server.py`, `kg_server.py` |
+| 🧠 **LLM Synthesis Layer** | Ollama LLMs (`llama3.1`, `qwen2.5`) | Answers questions with retrieved context + KG enrichment | `rag.qa`, `llm_chunk_tagger` |
+| 💬 **User Interface Layer** | MCP Coordinator / Streamlit | Connects multiple MCPs for conversational Q&A | Coordinator UI or custom Streamlit dashboard |
+
+---
+
+### 🔹 Data Flow Diagram
+
+        ┌────────────────────────────┐
+        │        Whitepapers         │
+        │ (PDFs, research papers...) │
+        └────────────┬───────────────┘
+                     │
+                     ▼
+ ┌──────────────────────────────────┐
+ │     📄 Ingestion & Labeling      │
+ │  pdf_reader → semantic_splitter  │
+ │  → llm_chunk_tagger → postprocess│
+ └────────────┬─────────────────────┘
+              │
+      ┌───────┴────────────┐
+      │                    │
+      ▼                    ▼
+┌────────────────┐ ┌────────────────────┐
+│ 🧠 GraphDB KG │ │ 💾 Chroma RAG │
+│ Entities + IRIs │ │ Embeddings + Texts │
+└──────┬──────────┘ └──────────┬─────────┘
+│ │
+▼ ▼
+┌───────────────┐ ┌───────────────┐
+│ ⚙️ kg_server │ │ ⚙️ rag_server │
+│ (FastMCP) │ │ (FastMCP) │
+└──────┬────────┘ └──────┬────────┘
+│ │
+└──────────┬────────────────┘
+▼
+┌──────────────────────────────┐
+│ 💬 MCP Coordinator / UI │
+│ (Streamlit / Chat Interface) │
+└──────────────────────────────┘
+
+---
+
