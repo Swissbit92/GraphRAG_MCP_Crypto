@@ -3,15 +3,8 @@
 > **Entity-centric Retrieval-Augmented Generation for Crypto Whitepapers**  
 > _Local-first • Private • FastMCP-ready_
 
-<p align="left">
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white" />
-  <img alt="Ollama" src="https://img.shields.io/badge/Ollama-Local%20LLMs-000000?logo=ollama&logoColor=white" />
-  <img alt="ChromaDB" src="https://img.shields.io/badge/Chroma-Vector%20Store-241F31" />
-  <img alt="GraphDB" src="https://img.shields.io/badge/GraphDB-Ontotext-FF5A1F" />
-  <img alt="FastMCP" src="https://img.shields.io/badge/FastMCP-2.x-4F46E5" />
-  <img alt="LangChain" src="https://img.shields.io/badge/LangChain-Local%20Orchestration-00BFFF" />
-  <img alt="License" src="https://img.shields.io/badge/Privacy-Local%20Only-16a34a" />
-</p>
+<!-- Badges -->
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-Local%20LLMs-000000?logo=ollama&logoColor=white) ![ChromaDB](https://img.shields.io/badge/Chroma-Vector%20Store-241F31) ![GraphDB](https://img.shields.io/badge/GraphDB-Ontotext-FF5A1F) ![FastMCP](https://img.shields.io/badge/FastMCP-2.x-4F46E5) ![LangChain](https://img.shields.io/badge/LangChain-Local%20Orchestration-00BFFF) ![Privacy](https://img.shields.io/badge/Privacy-Local%20Only-16a34a)
 
 ---
 
@@ -406,9 +399,9 @@ If you find this useful:
 
 ---
 
-> *“Knowledge is only powerful when it’s connected.”*  
-> — **Eeva AI Research**
+> _“Knowledge is only powerful when it’s connected.”_  
+> — __Eeva AI Research__
 
-**Thank you for being part of the open-source journey. 🚀**
+Thank you for being part of the open-source journey. 🚀
 
 ---
