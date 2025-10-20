@@ -13,22 +13,22 @@
 # ============================================================================
 # 🧩  CORE LIBRARIES
 # ============================================================================
-pymupdf==1.24.9           # PDF ingestion and text extraction (used in pdf_reader.py)
-tqdm==4.66.4              # Progress bars across pipeline steps
-python-dotenv==1.0.1      # Load .env configuration (OLLAMA_, GRAPHDB_, CHROMA_ vars)
-numpy==1.26.4             # Numeric processing, vector ops, embeddings
-pandas==2.2.2             # Tabular and JSONL label handling
-scikit-learn==1.5.1       # Clustering / community detection (simple_communities.py)
-networkx==3.3             # Graph utilities for co-mention and cluster graphs
-requests==2.32.3          # HTTP access (Ollama API, GraphDB SPARQL, etc.)
-pydantic==2.8.2           # Data validation for all FastMCP I/O schemas
-pytest==7.4.2             # Test runner for local + CI smoke tests
+pymupdf                   # PDF ingestion and text extraction (used in pdf_reader.py)
+tqdm                      # Progress bars across pipeline steps
+python-dotenv             # Load .env configuration (OLLAMA_, GRAPHDB_, CHROMA_ vars)
+numpy                     # Numeric processing, vector ops, embeddings
+pandas                    # Tabular and JSONL label handling
+scikit-learn              # Clustering / community detection (simple_communities.py)
+networkx                  # Graph utilities for co-mention and cluster graphs
+requests                  # HTTP access (Ollama API, GraphDB SPARQL, etc.)
+pydantic                  # Data validation for all FastMCP I/O schemas
+pytest                    # Test runner for local + CI smoke tests
 
 # ============================================================================
 # 📄  YAML / STRING UTILITIES
 # ============================================================================
-PyYAML==6.0.2             # For YAML parsing / config interoperability
-rapidfuzz==3.9.6          # High-speed fuzzy string matching for entity cleanup
+PyYAML                    # For YAML parsing / config interoperability
+rapidfuzz                 # High-speed fuzzy string matching for entity cleanup
 
 # ============================================================================
 # 🧠  LANGCHAIN + OLLAMA (Local LLM Inference)
@@ -41,18 +41,18 @@ langchain-ollama          # Ollama model integration (used in llm_chunk_tagger.p
 # ============================================================================
 # 🧩  KNOWLEDGE GRAPH + RDF SUPPORT
 # ============================================================================
-langchain-community==0.3.4  # Additional LangChain integrations (Chroma, etc.)
-rdflib==7.1.1               # RDF serialization / parsing for KG interoperability
+langchain-community       # Additional LangChain integrations (Chroma, etc.)
+rdflib                    # RDF serialization / parsing for KG interoperability
 
 # ============================================================================
 # 💾  VECTOR STORE (RAG BACKEND)
 # ============================================================================
-chromadb>=0.4.24          # Persistent vector database for embeddings / retrieval
+chromadb                  # Persistent vector database for embeddings / retrieval
 
 # ============================================================================
 # ⚙️  MCP FRAMEWORK
 # ============================================================================
-fastmcp>=2.2              # FastMCP 2.x server framework for rag_server.py / kg_server.py
+fastmcp                   # FastMCP 2.x server framework for rag_server.py / kg_server.py
 
 
 ################################################################################
