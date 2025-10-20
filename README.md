@@ -3,10 +3,7 @@
 > **Entity-centric Retrieval-Augmented Generation for Crypto Whitepapers**  
 > _Local-first • Private • FastMCP-ready_
 
-<p align="center">
-  <img src="images/GRAPH_RAG_MCP.png" alt="GraphRAG MCP – Eeva AI Cyberpunk Header" width="800"/>
-</p>
-
+![GraphRAG MCP – Eeva AI Cyberpunk Header](images/GRAPH_RAG_MCP.png)
 
 <!-- Badges -->
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-Local%20LLMs-000000?logo=ollama&logoColor=white) ![ChromaDB](https://img.shields.io/badge/Chroma-Vector%20Store-241F31) ![GraphDB](https://img.shields.io/badge/GraphDB-Ontotext-FF5A1F) ![FastMCP](https://img.shields.io/badge/FastMCP-2.x-4F46E5) ![LangChain](https://img.shields.io/badge/LangChain-Local%20Orchestration-00BFFF) ![Privacy](https://img.shields.io/badge/Privacy-Local%20Only-16a34a)
@@ -85,7 +82,7 @@
 ## 3️⃣ 🏗️ Architecture
 
 The **GraphRAG MCP** architecture combines **Knowledge Graph reasoning**, **Vector-based retrieval**, and **Local LLM synthesis** — all under the **MCP** interoperability standard.  
-It’s designed for *clarity*, *privacy*, and *modular scalability*.
+It’s designed for _clarity_, _privacy_, and _modular scalability_.
 
 ---
 
@@ -222,7 +219,7 @@ This stack runs fully offline and integrates seamlessly with **Ollama**, **Graph
 #### 🪄 1️⃣ Clone & Create Virtual Environment
 
 ```bash
-git clone <[text](https://github.com/Swissbit92/GraphDB_Desktop.git)>
+git clone https://github.com/Swissbit92/GraphDB_Desktop.git
 ```
 
 #### ⚡ 2️⃣ Activate Environment
