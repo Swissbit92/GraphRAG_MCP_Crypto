@@ -3,6 +3,11 @@
 > **Entity-centric Retrieval-Augmented Generation for Crypto Whitepapers**  
 > _Local-first • Private • FastMCP-ready_
 
+<p align="center">
+  <img src="images/GRAPH_RAG_MCP.png" alt="GraphRAG MCP – Eeva AI Cyberpunk Header" width="800"/>
+</p>
+
+
 <!-- Badges -->
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white) ![Ollama](https://img.shields.io/badge/Ollama-Local%20LLMs-000000?logo=ollama&logoColor=white) ![ChromaDB](https://img.shields.io/badge/Chroma-Vector%20Store-241F31) ![GraphDB](https://img.shields.io/badge/GraphDB-Ontotext-FF5A1F) ![FastMCP](https://img.shields.io/badge/FastMCP-2.x-4F46E5) ![LangChain](https://img.shields.io/badge/LangChain-Local%20Orchestration-00BFFF) ![Privacy](https://img.shields.io/badge/Privacy-Local%20Only-16a34a)
 
