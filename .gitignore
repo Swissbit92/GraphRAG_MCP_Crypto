@@ -5,3 +5,5 @@ outputs/
 __pycache__/
 data/
 Scripts/
+Include/
+share/
